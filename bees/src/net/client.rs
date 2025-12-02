@@ -1,9 +1,14 @@
-use crate::endpoint_record::{endpoint::{Endpoint, HttpVerb}, request_decorator::{Decorate, Handler, RequestDecorator}};
+use crate::endpoint_record::{
+    endpoint::{Endpoint, HttpVerb},
+    request_decorator::{Decorate, Handler, RequestDecorator},
+};
 use reqwest::{
     Client as ReqClient, Method, Response, Url,
     header::{HeaderName, HeaderValue},
 };
-use std::{any::Any, borrow::Borrow, collections::HashMap, error::Error, sync::Arc, time::Duration};
+use std::{
+    any::Any, borrow::Borrow, collections::HashMap, error::Error, sync::Arc, time::Duration,
+};
 
 use super::get_rate_limiter_duration;
 use super::rate_limiter::RateLimiter;
@@ -18,6 +23,11 @@ pub struct Client {
 impl Client {
     pub(crate) fn new() -> Self {
         Self::_new(
+            // ReqClient::builder()
+            //     .proxy(Proxy::http("http://127.0.0.1:8080/").unwrap())
+            //     .proxy(Proxy::https("https://127.0.0.1:8080/").unwrap())
+            //     .build()
+            //     .unwrap(),
             ReqClient::new(),
             RateLimiter::new(get_rate_limiter_duration()),
         )
@@ -55,7 +65,10 @@ impl Client {
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn execute_reqwest_req(&self, request: reqwest::Request) -> Result<Response, reqwest::Error> {
+    pub(crate) async fn execute_reqwest_req(
+        &self,
+        request: reqwest::Request,
+    ) -> Result<Response, reqwest::Error> {
         self.rate_limiter.wait().await;
         self.inner.execute(request).await
     }
@@ -69,26 +82,24 @@ impl Client {
         &self,
         endpoint: &Endpoint,
         parse_values: impl Borrow<HashMap<String, String>>,
-        query_values: impl Borrow<Vec<(String, Option<String>)>>
+        query_values: impl Borrow<Vec<(String, Option<String>)>>,
     ) -> Result<RequestBuilder, Box<dyn Error>> {
         let parse_values = parse_values.borrow();
         let url = Url::parse(&endpoint.full_url(parse_values, query_values.borrow()).await)?;
         let request = self.request(endpoint.http_verb().as_method(), url);
-        
+
         let mut request = match endpoint.http_verb() {
-            HttpVerb::GET 
-                | HttpVerb::DELETE(Option::None) 
-                | HttpVerb::OPTIONS 
-                | HttpVerb::HEAD => request,
-            
-            HttpVerb::POST(body) 
-                | HttpVerb::PUT(body) 
-                | HttpVerb::PATCH(body) 
-                | HttpVerb::DELETE(Some(body)) 
-            => {
+            HttpVerb::GET | HttpVerb::DELETE(Option::None) | HttpVerb::OPTIONS | HttpVerb::HEAD => {
+                request
+            }
+
+            HttpVerb::POST(body)
+            | HttpVerb::PUT(body)
+            | HttpVerb::PATCH(body)
+            | HttpVerb::DELETE(Some(body)) => {
                 let request = request.body(body.to_formatted(parse_values).await);
                 request
-            },
+            }
         };
 
         let capabilities = endpoint.all_capabilities();
@@ -105,30 +116,27 @@ impl Client {
         &self,
         endpoint: &Endpoint,
         parse_values: impl Borrow<HashMap<String, String>>,
-        query_values: impl Borrow<Vec<(String, Option<String>)>>
-    ) -> Result<Request, Box<dyn Error>> { 
-        match self.build_req_builder(endpoint, parse_values, query_values).await {
+        query_values: impl Borrow<Vec<(String, Option<String>)>>,
+    ) -> Result<Request, Box<dyn Error>> {
+        match self
+            .build_req_builder(endpoint, parse_values, query_values)
+            .await
+        {
             Ok(rb) => Ok(rb.build()?),
             Err(e) => Err(e),
         }
     }
 
     pub(crate) fn endpoint_handler<'a>(&'a self) -> Handler<'a, reqwest::Error> {
-        Arc::new(
-            move |req: Request| Box::pin(
-                async move {
-                    self.execute(req).await
-                }
-            )
-        )
+        Arc::new(move |req: Request| Box::pin(async move { self.execute(req).await }))
     }
 
     pub fn run_endpoint<'a, 'b>(
         &'a self,
         endpoint: Endpoint,
         parse_values: &'b HashMap<String, String>,
-        query_values: &'b Vec<(String, Option<String>)>
-    ) -> EndpointRunner<'a, reqwest::Error> 
+        query_values: &'b Vec<(String, Option<String>)>,
+    ) -> EndpointRunner<'a, reqwest::Error>
     where
         'b: 'a,
     {
@@ -142,7 +150,10 @@ impl Client {
         }
     }
 
-    pub fn run_request<'a, E: Error + Send + 'a>(&'a self, request: Request) -> RequestRunner<'a, reqwest::Error> {
+    pub fn run_request<'a, E: Error + Send + 'a>(
+        &'a self,
+        request: Request,
+    ) -> RequestRunner<'a, reqwest::Error> {
         let handler = self.endpoint_handler();
         RequestRunner {
             client: self.clone(),
@@ -165,7 +176,7 @@ where
     pub fn decorate<G: Error + Send + 'a>(
         self,
         decorator: &'a dyn RequestDecorator<E, G>,
-    ) -> RequestRunner<'a, G> 
+    ) -> RequestRunner<'a, G>
     where
         G: 'a,
     {
@@ -187,14 +198,14 @@ pub struct EndpointRunner<'a, E: Error + Send + 'static> {
     handler: Handler<'a, E>,
     endpoint: Endpoint,
     parse_values: &'a HashMap<String, String>,
-    query_values: &'a Vec<(String, Option<String>)>
+    query_values: &'a Vec<(String, Option<String>)>,
 }
 
 impl<'a, E: Error + Send + 'static> EndpointRunner<'a, E> {
-    pub fn decorate<G: Error + Send + 'a>(
+    pub fn decorate<G: Error + Send + 'a, D: RequestDecorator<E, G>>(
         self,
-        decorator: &'a dyn RequestDecorator<E, G>,
-    ) -> EndpointRunner<'a, G> 
+        decorator: &'a D,
+    ) -> EndpointRunner<'a, G>
     where
         G: 'a,
     {
@@ -209,39 +220,42 @@ impl<'a, E: Error + Send + 'static> EndpointRunner<'a, E> {
     }
 
     pub async fn run_resp(self) -> Result<Response, Box<dyn Error>> {
-        let req = self.client.build_req(
-            &self.endpoint,
-            self.parse_values,
-            self.query_values
-        ).await?;
+        let req = self
+            .client
+            .build_req(&self.endpoint, self.parse_values, self.query_values)
+            .await?;
 
         println!("Running request: {:#?}", req);
 
         Ok((self.handler)(req).await?)
     }
 
-    pub async fn run_specific<T: Any + Send + Sync + 'static>(self) -> Result<T, Box<dyn Error>> {
-        let req = self.client.build_req(
-            &self.endpoint,
-            self.parse_values,
-            self.query_values
-        ).await?;
+    pub async fn run<T: Any + Send + Sync + 'static>(self) -> Result<T, Box<dyn Error>> {
+        let req = self
+            .client
+            .build_req(&self.endpoint, self.parse_values, self.query_values)
+            .await?;
 
         println!("Running request: {:#?}", req);
 
-        Ok(self.endpoint.endpoint_output_specific((self.handler)(req).await?).await)
+        Ok(self
+            .endpoint
+            .endpoint_output_specific((self.handler)(req).await?)
+            .await)
     }
 
-    pub async fn run(self) -> Result<Box<dyn Any + Send + Sync + 'static>, Box<dyn Error>> {
-        let req = self.client.build_req(
-            &self.endpoint,
-            self.parse_values,
-            self.query_values
-        ).await?;
+    pub async fn run_any(self) -> Result<Box<dyn Any + Send + Sync + 'static>, Box<dyn Error>> {
+        let req = self
+            .client
+            .build_req(&self.endpoint, self.parse_values, self.query_values)
+            .await?;
 
         println!("Running request: {:#?}", req);
 
-        Ok(self.endpoint.endpoint_output((self.handler)(req).await?).await)
+        Ok(self
+            .endpoint
+            .endpoint_output((self.handler)(req).await?)
+            .await)
     }
 }
 

@@ -1,2 +1,2 @@
-pub mod updating_cookie;
+pub mod updating_token;
 pub mod static_res;
