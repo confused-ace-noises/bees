@@ -30,12 +30,9 @@ macro_rules! record {
     }};
     // ----- MULTIPLE ------
 
-    // TODO: put all of the other branches up to the same standard
-
     ($( $name:expr => $const_url:expr $(; [ $( $capability:expr ),+ ] )? ),+ $(,)?) => { ( $( $crate::record!( $name => $const_url $(; [$($capability),+])? ) ),+ ) };
 
-    // (noreg $((end $name:expr => $const_url:expr $(, [ $( $capability:expr ),+ ] )? $(; [ $($endpoint:expr),+ $(,)? ])? )),+ $(,)?) => { ( $( $crate::record!(noreg $name => $const_url $(, [$($capability),+])? $(; [$($endpoint),+])? ) ),+ ) };
-
+    (noreg $( $name:expr => $const_url:expr $(; [ $( $capability:expr ),+ ] )? ),+ $(,)?) => { ( $( $crate::record!(noreg $name => $const_url $(; [$($capability),+])? ) ),+ ) };
 
     // expression lookup
     ($record:expr) => {
@@ -76,20 +73,25 @@ macro_rules! record {
 /// make sure you convert it to `Box<dyn Capability>` yourself before passing it
 /// to the macro.
 macro_rules! endpoint {
-    ($record:expr => new $name:expr, $path:expr, $http_verb:expr, $func:expr $(; [$($capability:expr),*] )? $(,)?) => {
+    ($record:expr => new $name:expr, $path:expr, $http_verb:expr, $($func:expr)+ $(; [$($capability:expr),*] )? $(,)?) => {
         {
             let __endpoint_macro_record = $crate::record!($record);
 
-            let __endpoint_macro_endpoint = $crate::endpoint_record::endpoint::Endpoint::new_template(
+            let mut __endpoint_macro_endpoint_builder = $crate::endpoint_record::endpoint::Endpoint::builder_template(
                 $crate::endpoint_record::endpoint::EndpointTemplate {
                     record_name: ::std::convert::Into::into($record),
                     name: ::std::convert::Into::into($name),
                     path: ::std::convert::Into::into($path),
                     http_verb: $http_verb,
                     capabilities: ::std::sync::Arc::new([$($($crate::endpoint_record::IntoBoxedCapability::into_boxed_capability($capability)),*)?]),
-                    endpoint_output: $func,
                 }
             );
+
+            let __endpoint_macro_endpoint = {
+                $(__endpoint_macro_endpoint_builder.push_endpoint_output($func);)+
+
+                __endpoint_macro_endpoint_builder.build()
+            };
 
             __endpoint_macro_record.add_endpoint(__endpoint_macro_endpoint.clone());
 
@@ -177,45 +179,4 @@ impl<T: Capability + 'static> IntoBoxedCapability for T {
     fn into_boxed_capability(self) -> Box<dyn Capability> {
         Box::new(self) as Box<dyn Capability>
     }
-}
-
-// impl<C: Capability> IntoBoxedCapability for Box<C> {
-
-// }
-
-#[test]
-fn record_macro_compiles_all_branches() {
-    use crate::record;
-
-    // --- WITHOUT ENDPOINTS ---
-
-    // noreg, no caps
-    let _r1 = record!(noreg "noreg_no_caps" => "/a");
-
-    // noreg, with caps
-    // let _r2 = record!(noreg "noreg_caps" => "/b"; ["cap1", "cap2"]);
-
-    // register, no caps
-    let _r3 = record!("reg_no_caps" => "/c");
-
-    // register, with caps
-    // let _r4 = record!("reg_caps" => "/d"; ["cap1"]);
-
-    // --- MULTIPLE ---
-
-    let _multiple_reg = record!(
-        "m1" => "/m1"; [Box::new(|x: crate::net::client::RequestBuilder| x) as Box<dyn Capability>],
-        "m2" => "x"; [Box::new(|x: crate::net::client::RequestBuilder| x) as Box<dyn Capability>]
-    );
-
-    // let _multiple_noreg = record!(
-    //     noreg
-    //     "m3" => "/m3",
-    //     "m4" => "/m4", ["cap1"]; ["epB", "epC"]
-    // );
-
-    // --- LOOKUPS ---
-
-    let _expr_lookup = record!("reg_no_caps"); // (expr)
-    let _expr_option = record!(option "reg_no_caps"); // (option expr)
 }

@@ -1,7 +1,6 @@
 use net::init_rate_limiter_duration;
-use std::time::Duration;
 
-use crate::core::init_context;
+use crate::{core::init_context, net::init_rate_limiter_duration_if_needed};
 
 pub mod core;
 pub mod endpoint_record;
@@ -16,8 +15,18 @@ pub use dashmap;
 // a struct implementing that trait and `client` runs it through a specilized run_trait
 // function
 
-pub fn init(rate_limiter_duration: Duration) {
-    init_rate_limiter_duration(rate_limiter_duration);
+pub fn init(rate: usize) {
+    init_rate_limiter_duration(rate);
     init_context();
 }
+
+pub fn init_default() {
+    init_rate_limiter_duration(2);
+    init_context();
+}
+
+pub fn init_default_if_needed() {
+    init_rate_limiter_duration_if_needed(2);
+}
+
 pub(crate) trait Sealed {}

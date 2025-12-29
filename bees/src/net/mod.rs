@@ -1,14 +1,21 @@
-use std::{sync::OnceLock, time::Duration};
-
+use std::sync::OnceLock;
+use async_rate_limiter::RateLimiter;
 pub mod client;
-pub mod rate_limiter;
 
-static RATE_LIMITER_DURATION: OnceLock<std::time::Duration> = OnceLock::new();
+static RATE_LIMITER_DURATION: OnceLock<RateLimiter> = OnceLock::new();
 
-pub(crate) fn get_rate_limiter_duration() -> &'static Duration {
-    RATE_LIMITER_DURATION.get().expect("this shoudln't happen. did you remember to init bees (`bees::init()`)?")
+pub(crate) fn get_rate_limiter() -> &'static RateLimiter {
+    RATE_LIMITER_DURATION.get().expect("this shouldn't happen. did you remember to init bees (`bees::init()`)?")
 }
 
-pub(super) fn init_rate_limiter_duration(duration: Duration) {
-    RATE_LIMITER_DURATION.set(duration).expect("RATE_LIMITER_DURATION was already set somehow???");
+pub(super) fn init_rate_limiter_duration(rate: usize) {
+    let Ok(_) = RATE_LIMITER_DURATION.set(RateLimiter::new(rate)) else {
+        panic!("RATE_LIMITER_DURATION was already set somehow???")
+    };
+}
+
+// TODO: add ability to decide a burst amount for the rate limiter
+
+pub(super) fn init_rate_limiter_duration_if_needed(rate: usize) {
+    let _ = RATE_LIMITER_DURATION.set(RateLimiter::new(rate));
 }

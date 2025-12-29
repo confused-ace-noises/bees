@@ -1,23 +1,28 @@
-use crate::endpoint_record::{
+use crate::{endpoint_record::{
     endpoint::{Endpoint, HttpVerb},
     request_decorator::{Decorate, Handler, RequestDecorator},
-};
+}, net::get_rate_limiter};
+use async_rate_limiter::RateLimiter;
 use reqwest::{
     Client as ReqClient, Method, Response, Url,
     header::{HeaderName, HeaderValue},
 };
 use std::{
-    any::Any, borrow::Borrow, collections::HashMap, error::Error, sync::Arc, time::Duration,
+    any::Any, borrow::Borrow, collections::HashMap, error::Error, fmt, sync::Arc, time::Duration
 };
 
-use super::get_rate_limiter_duration;
-use super::rate_limiter::RateLimiter;
 use delegate::delegate;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Client {
     inner: Arc<ReqClient>,
-    rate_limiter: Arc<RateLimiter>,
+    rate_limiter: &'static RateLimiter,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client").field("inner", &self.inner).field("rate_limiter", &"async_rate_limiter internals").finish()
+    }
 }
 
 impl Client {
@@ -29,19 +34,19 @@ impl Client {
             //     .build()
             //     .unwrap(),
             ReqClient::new(),
-            RateLimiter::new(get_rate_limiter_duration()),
+            get_rate_limiter(),
         )
     }
 
     #[allow(dead_code)]
-    pub(crate) fn new_custom_rate_limit(rate_limit: Duration) -> Self {
-        Self::_new(ReqClient::new(), RateLimiter::new(&rate_limit))
+    pub(crate) fn new_custom_rate_limiter(rate_limiter: &'static RateLimiter) -> Self {
+        Self::_new(ReqClient::new(), rate_limiter)
     }
 
-    pub(crate) fn _new(client: ReqClient, rate_limiter: RateLimiter) -> Self {
+    pub(crate) fn _new(client: ReqClient, rate_limiter: &'static RateLimiter) -> Self {
         Self {
             inner: Arc::new(client),
-            rate_limiter: Arc::new(rate_limiter),
+            rate_limiter,
         }
     }
 
@@ -53,14 +58,14 @@ impl Client {
         Fut: Future<Output = Result<Response, E>>,
         E: Error,
     {
-        self.rate_limiter.wait().await;
+        self.rate_limiter.acquire().await;
         f(self.inner.clone())?.await
     }
 
     pub fn request(&self, method: Method, url: impl reqwest::IntoUrl) -> RequestBuilder {
         RequestBuilder {
             inner: self.inner.request(method, url),
-            rate_limiter: self.rate_limiter.clone(),
+            rate_limiter: self.rate_limiter,
         }
     }
 
@@ -69,12 +74,12 @@ impl Client {
         &self,
         request: reqwest::Request,
     ) -> Result<Response, reqwest::Error> {
-        self.rate_limiter.wait().await;
+        self.rate_limiter.acquire().await;
         self.inner.execute(request).await
     }
 
     pub async fn execute(&self, request: Request) -> Result<Response, reqwest::Error> {
-        request.rate_limiter.wait().await;
+        request.rate_limiter.acquire().await;
         self.inner.execute(request.inner).await
     }
 
@@ -243,26 +248,17 @@ impl<'a, E: Error + Send + 'static> EndpointRunner<'a, E> {
             .endpoint_output_specific((self.handler)(req).await?)
             .await)
     }
-
-    pub async fn run_any(self) -> Result<Box<dyn Any + Send + Sync + 'static>, Box<dyn Error>> {
-        let req = self
-            .client
-            .build_req(&self.endpoint, self.parse_values, self.query_values)
-            .await?;
-
-        println!("Running request: {:#?}", req);
-
-        Ok(self
-            .endpoint
-            .endpoint_output((self.handler)(req).await?)
-            .await)
-    }
 }
 
-#[derive(Debug)]
 pub struct RequestBuilder {
     inner: reqwest::RequestBuilder,
-    rate_limiter: Arc<RateLimiter>,
+    rate_limiter: &'static RateLimiter,
+}
+
+impl fmt::Debug for RequestBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RequestBuilder").field("inner", &self.inner).field("rate_limiter", &"async_rate_limiter internals").finish()
+    }
 }
 
 impl RequestBuilder {
@@ -327,15 +323,20 @@ impl RequestBuilder {
     }
 
     pub async fn send(self) -> Result<Response, reqwest::Error> {
-        self.rate_limiter.wait().await;
+        self.rate_limiter.acquire().await;
         self.inner.send().await
     }
 }
 
-#[derive(Debug)]
 pub struct Request {
     inner: reqwest::Request,
-    rate_limiter: Arc<RateLimiter>,
+    rate_limiter: &'static RateLimiter,
+}
+
+impl fmt::Debug for Request {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Request").field("inner", &self.inner).field("rate_limiter", &"async_rate_limiter internals").finish()
+    }
 }
 
 impl Request {
@@ -360,7 +361,7 @@ impl Request {
             pub fn version(&self) -> reqwest::Version;
             pub fn version_mut(&mut self) -> &mut reqwest::Version;
 
-            #[expr(Some(Self { inner: $?, rate_limiter: self.rate_limiter.clone() }))]
+            #[expr(Some(Self { inner: $?, rate_limiter: self.rate_limiter }))]
             pub fn try_clone(&self) -> Option<Request>;
         }
     }
@@ -376,7 +377,7 @@ where
         let reqwest_request = reqwest::Request::try_from(value)?;
         Ok(Self {
             inner: reqwest_request,
-            rate_limiter: Arc::new(RateLimiter::new(get_rate_limiter_duration())), // default no rate limit
+            rate_limiter: get_rate_limiter(),
         })
     }
 }
@@ -392,6 +393,7 @@ impl TryFrom<Request> for http::Request<reqwest::Body> {
 
 #[tokio::test]
 async fn test() {
+    crate::init_default();
     use crate::core::client;
     let client = client();
     let _ = client

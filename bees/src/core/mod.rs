@@ -15,6 +15,11 @@ pub(crate) fn init_context() {
         .expect("CONTEXT was already set somehow???")
 }
 
+pub(crate) fn init_context_if_needed() {
+    let _ = CONTEXT.set(Context::new());
+}
+
+
 pub fn context() -> &'static Context {
     CONTEXT
         .get()

@@ -1,5 +1,6 @@
 use core::{fmt, hash};
-use std::{any::{Any, TypeId}, borrow::Borrow, collections::HashMap, pin::Pin, sync::Arc};
+use std::{any::{Any, TypeId}, borrow::Borrow, collections::HashMap, fmt::Debug, pin::Pin, sync::Arc};
+use dashmap::DashMap;
 use http::Method;
 use reqwest::Response;
 use std::hash::Hash;
@@ -9,39 +10,39 @@ use crate::{endpoint_record::record::Record, net, record, resource};
 pub struct Endpoint(Arc<InnerEndpoint>);
 
 impl Endpoint {
-    pub fn new<F, Fut, T>(
+    pub fn new(
         record_name: String,
         name: String, 
         path: FormatString,
         http_verb:HttpVerb,
         capabilities: Arc<[Box<dyn Capability>]>,
-        endpoint_output: F
-    ) -> Self 
-    where
-        F: Fn(Response) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T> + Send + 'static,
-        T: Any + Send + Sync + 'static,
-    {
-        Self(Arc::new(InnerEndpoint::new(&record!(&record_name), name, path, http_verb, capabilities, EndpointOutput::new(endpoint_output))))
+        endpoint_outputs: EndpointOutput
+    ) -> Self {
+        Self(Arc::new(InnerEndpoint::new(&record!(&record_name), name, path, http_verb, capabilities, endpoint_outputs)))
     }
 
-    pub fn new_template<F, Fut, T>(template: EndpointTemplate<F, Fut, T>) -> Self 
-    where
-        F: Fn(Response) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T> + Send + 'static,
-        T: Any + Send + Sync + 'static,
-    {
-        Self::new(template.record_name, template.name, template.path, template.http_verb, template.capabilities, template.endpoint_output)
+    pub fn builder(
+        record_name: String,
+        name: String, 
+        path: FormatString,
+        http_verb:HttpVerb,
+        capabilities: Arc<[Box<dyn Capability>]>,
+    ) -> EndpointBuilder {
+        EndpointBuilder::new(record_name, name, path, http_verb, capabilities)
     }
 
-    pub fn new_func<F, Fut, T>(func: impl FnOnce() -> EndpointTemplate<F, Fut, T>) -> Self 
-    where
-        F: Fn(Response) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T> + Send + 'static,
-        T: Any + Send + Sync + 'static,
-    {
-        Self::new_template(func())
+    pub fn builder_template(template: EndpointTemplate) -> EndpointBuilder {
+        EndpointBuilder::new_template(template)
     }
+
+    // pub fn new_func<F, Fut, T>(func: impl FnOnce() -> EndpointTemplate<F, Fut, T>) -> Self 
+    // where
+    //     F: Fn(Response) -> Fut + Send + Sync + 'static,
+    //     Fut: Future<Output = T> + Send + 'static,
+    //     T: Any + Send + Sync + 'static,
+    // {
+    //     Self::new_template(func())
+    // }
 
     pub async fn full_url(&self, format_values: impl Borrow<HashMap<String, String>>, query_params: &Vec<(String, Option<String>)>) -> String {
         self.0.full_url(format_values, query_params).await
@@ -82,28 +83,71 @@ impl Endpoint {
     }
 
     pub async fn endpoint_output_specific<T: Any + Send + Sync + 'static>(&self, resp: Response) -> T {
-        self.0.endpoint_output.run_typed(resp).await
-    } 
-
-    pub async fn endpoint_output(&self, resp: Response) -> Box<dyn Any + Send + Sync + 'static> {
-        self.0.endpoint_output.run(resp).await
+        self.0.endpoint_outputs.run::<T>(resp).await
     } 
 }
 
-pub struct EndpointTemplate<F, Fut, T> 
-where
-    F: Fn(Response) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = T> + Send + 'static,
-    T: Any + Send + Sync + 'static,
+pub struct EndpointTemplate
 {
     pub record_name: String,
     pub name: String, 
     pub path: FormatString,
     pub http_verb:HttpVerb,
     pub capabilities: Arc<[Box<dyn Capability>]>,
-    pub endpoint_output: F
 }
 
+pub struct EndpointBuilder {
+    pub record_name: String,
+    pub name: String, 
+    pub path: FormatString,
+    pub http_verb:HttpVerb,
+    pub capabilities: Arc<[Box<dyn Capability>]>,
+    pub endpoint_output: EndpointOutput
+}
+
+impl EndpointBuilder {
+    pub fn new(
+        record_name: String,
+        name: String, 
+        path: FormatString,
+        http_verb:HttpVerb,
+        capabilities: Arc<[Box<dyn Capability>]>,
+    ) -> Self {
+        Self {
+            record_name,
+            name,
+            path,
+            http_verb,
+            capabilities,
+            endpoint_output: EndpointOutput::new()
+        }
+    }
+
+    pub fn new_template(template: EndpointTemplate) -> Self {
+        Self {
+            record_name: template.record_name,
+            name: template.name,
+            path: template.path,
+            http_verb: template.http_verb,
+            capabilities: template.capabilities,
+            endpoint_output: EndpointOutput::new()
+        }
+    }
+
+    pub fn push_endpoint_output<F, Fut, O>(&mut self, func: F) -> &mut Self 
+    where
+        F: Fn(Response) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = O> + Send + 'static,
+        O: Any + Send + Sync + 'static,
+    {
+        self.endpoint_output.insert(func);
+        self
+    }
+
+    pub fn build(self) -> Endpoint {
+        Endpoint::new(self.record_name, self.name, self.path, self.http_verb, self.capabilities, self.endpoint_output)
+    }
+}
 
 impl Clone for Endpoint {
     fn clone(&self) -> Self {
@@ -136,21 +180,22 @@ pub type ErasedAsyncFn =
         + Sync;
 
 /// A stored async endpoint with erased output type.
-pub struct EndpointOutput {
-    func: Arc<ErasedAsyncFn>, // Arc so Fn can be called many times
-    pub type_id: TypeId,
-}
+pub struct EndpointOutput(DashMap<TypeId, Arc<ErasedAsyncFn>>);
 
 impl EndpointOutput {
+    pub fn new() -> Self {
+        Self(DashMap::new())
+    }
+
     /// Creates a new endpoint taking an async function `F: Fn(Response) -> Fut`
     /// whose output type is `T`.
-    pub fn new<F, Fut, T>(func: F) -> Self
+    pub fn insert<F, Fut, O>(&mut self, func: F)
     where
         F: Fn(Response) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T> + Send + 'static,
-        T: Any + Send + Sync + 'static,
+        Fut: Future<Output = O> + Send + 'static,
+        O: Any + Send + Sync + 'static,
     {
-        let type_id = TypeId::of::<T>();
+        let type_id = TypeId::of::<O>();
 
         let erased: Arc<ErasedAsyncFn> = Arc::new(move |resp: Response| {
             let fut = func(resp);
@@ -164,53 +209,48 @@ impl EndpointOutput {
             Box::pin(fut)
         });
 
-        EndpointOutput { func: erased, type_id }
-    }
-
-    /// Run the endpoint asynchronously and return erased output.
-    async fn run(&self, resp: Response) -> Box<dyn Any + Send + Sync> {
-        (self.func)(resp).await
+        if let Some(_) = self.0.insert(type_id, erased) {
+            panic!("No one endpoint can have multiple output processors that return the same type.")
+        }
     }
 
     /// Run the endpoint and downcast to the requested type.
-    pub async fn run_typed<T: Any + Send + Sync + 'static>(
+    pub async fn run<O: Any + Send + Sync + 'static>(
         &self,
         resp: Response,
-    ) -> T {
-        if self.type_id != TypeId::of::<T>() {
-            panic!("endpoint output function called with wrong output type");
-        }
+    ) -> O {
+        let type_id = TypeId::of::<O>();
+        let func = self.0.get(&type_id).expect(format!("type id {:?} didn't match any output functions for the selected endpoint", type_id).as_str());
 
-        let boxed = self.run(resp).await;
-
-        boxed
-            .downcast::<T>()
-            .map(|b| *b)
-            .unwrap_or_else(|_| {panic!("endpoint output function called with wrong output type")})
+        *func(resp).await.downcast::<O>().unwrap_or_else(|_| {
+            panic!("`run` in EndpointOutput could not properly downcast. Report this.")
+        })
     }
 }
 
+impl fmt::Debug for EndpointOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut pmap = f.debug_map();
+
+        for r in self.0.iter() {
+            let k = r.key();
+
+            pmap.entry(&k as &dyn Debug, &"Arc<dyn Fn(Response) -> Pin<Box<dyn Future<Output = Box<dyn Any + Send + Sync + 'static>> + Send + 'static>> + Send + Sync>");
+        }
+
+        pmap.finish()
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct InnerEndpoint {
     pub(crate) name: String,
     pub(crate) path: FormatString,
     pub(crate) http_verb: HttpVerb,
     pub(crate) capabilities: Arc<[Box<dyn Capability>]>, // only endpoint caps
     pub(crate) record: Record,
-    pub(crate) endpoint_output: EndpointOutput,
+    pub(crate) endpoint_outputs: EndpointOutput,
 
-}
-
-impl fmt::Debug for InnerEndpoint {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("InnerEndpoint")
-            .field("name", &self.name)
-            .field("path", &self.path)
-            .field("http_verb", &self.http_verb)
-            .field("capabilities", &self.capabilities)
-            .field("record", &self.record)
-            .field("endpoint_output", &self.endpoint_output.type_id())
-            .finish()
-    }
 }
 
 impl InnerEndpoint {
@@ -232,7 +272,7 @@ impl InnerEndpoint {
     //     Arc::from(result)
     // }
 
-    pub(crate) fn new(record: &Record, name: String, mut path: FormatString, http_enum: HttpVerb, capabilities: Arc<[Box<dyn Capability>]>, endpoint_output: EndpointOutput) -> Self {
+    pub(crate) fn new(record: &Record, name: String, mut path: FormatString, http_enum: HttpVerb, capabilities: Arc<[Box<dyn Capability>]>, endpoint_outputs: EndpointOutput) -> Self {
         let vec = path.inner_vec_mut();
 
         match vec.get_mut(0) {
@@ -256,7 +296,7 @@ impl InnerEndpoint {
             path,
             http_verb: http_enum,
             capabilities,
-            endpoint_output
+            endpoint_outputs
         }
     }
 
