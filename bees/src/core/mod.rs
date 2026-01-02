@@ -15,6 +15,7 @@ pub(crate) fn init_context() {
         .expect("CONTEXT was already set somehow???")
 }
 
+/// note: this must  be called *AFTER* `net::init_rate_limiter_duration()`
 pub(crate) fn init_context_if_needed() {
     let _ = CONTEXT.set(Context::new());
 }

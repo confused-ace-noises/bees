@@ -17,6 +17,11 @@ use dashmap::DashSet;
 /// 
 /// ```
 /// # use async_trait::async_trait;
+/// # use bees::core::resource::Resource;
+/// # use bees::net::client::Client;
+/// # use std::fmt::Display;
+/// 
+/// #[derive(Debug)]
 /// pub struct Cookie {
 ///     cookie_name: String,
 ///     cookie_string: String,
@@ -24,22 +29,22 @@ use dashmap::DashSet;
 /// 
 /// impl Cookie {
 ///     // note: use interior mutability if needed
-///     pub fn update_cookie(&self) {
-///         // expensive updating logic here...
+///     pub async fn update_cookie(&self) {
+///         // expensive possibly async updating logic here...
 ///     } 
 /// }
 /// 
 /// #[async_trait]
 /// impl Resource for Cookie {
-///     // calling ident is cheap
+///     // calling ident should be cheap
 ///     fn ident(&self) -> &str {
 ///         self.cookie_name.as_str()
 ///     }
 ///     
 ///     // calling data can be expensive
-///     async fn data(&self, client: Client) -> String {
-///         self.update_cookie();
-///         self.cookie_string
+///     async fn data(&self) -> Box<dyn Display> {
+///         self.update_cookie().await;
+///         Box::new(self.cookie_string.clone())
 ///     }
 /// }
 /// ```

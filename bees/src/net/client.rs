@@ -1,4 +1,4 @@
-use crate::{endpoint_record::{
+use crate::{Sealed, endpoint_record::{
     endpoint::{Endpoint, HttpVerb},
     request_decorator::{Decorate, Handler, RequestDecorator},
 }, net::get_rate_limiter};
@@ -198,7 +198,7 @@ where
     }
 }
 
-pub struct EndpointRunner<'a, E: Error + Send + 'static> {
+pub struct EndpointRunner<'a, E: Send> {
     client: Client,
     handler: Handler<'a, E>,
     endpoint: Endpoint,
@@ -206,23 +206,34 @@ pub struct EndpointRunner<'a, E: Error + Send + 'static> {
     query_values: &'a Vec<(String, Option<String>)>,
 }
 
+impl<'a, E: Send> Sealed for EndpointRunner<'a, E>{}
+
+// impl<'a, E: Send + 'a> Decorate<'a, E> for EndpointRunner<'a, E> {
+//     fn decorate<G: Send, T: RequestDecorator<'a, E, G> + 'a + ?Sized>(self, decorator: &'a T)-> Handler<'a, G>
+//     where
+//         G: 'a 
+//     {
+//         todo!()
+//     }
+// }
+
 impl<'a, E: Error + Send + 'static> EndpointRunner<'a, E> {
-    pub fn decorate<G: Error + Send + 'a, D: RequestDecorator<E, G>>(
-        self,
-        decorator: &'a D,
-    ) -> EndpointRunner<'a, G>
-    where
-        G: 'a,
-    {
-        let new_handler = self.handler.decorate(decorator);
-        EndpointRunner {
-            client: self.client,
-            handler: new_handler,
-            endpoint: self.endpoint,
-            parse_values: self.parse_values,
-            query_values: self.query_values,
-        }
-    }
+    // pub fn decorate<G: Error + Send + 'a, D: RequestDecorator<E, G>>(
+    //     self,
+    //     decorator: &'a D,
+    // ) -> EndpointRunner<'a, G>
+    // where
+    //     G: 'a,
+    // {
+    //     let new_handler = self.handler.decorate(decorator);
+    //     EndpointRunner {
+    //         client: self.client,
+    //         handler: new_handler,
+    //         endpoint: self.endpoint,
+    //         parse_values: self.parse_values,
+    //         query_values: self.query_values,
+    //     }
+    // }
 
     pub async fn run_resp(self) -> Result<Response, Box<dyn Error>> {
         let req = self

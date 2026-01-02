@@ -1,18 +1,15 @@
 #![allow(unused_parens)]
 
-use std::{collections::HashMap, error::Error, fmt::{Display, write}, sync::Arc};
+use std::{collections::HashMap, error::Error, fmt::Display};
 
-use reqwest::Url;
 use tokio::{sync::RwLock, time::Instant};
 
 use crate::{
     core::{client, resource::Resource},
     endpoint,
     endpoint_record::{
-        endpoint::{self, Endpoint},
-        request_decorator::RequestDecorator,
+        endpoint::Endpoint,
     },
-    net::client::Client,
 };
 
 #[derive(Debug)]

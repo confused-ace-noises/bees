@@ -1,6 +1,6 @@
 use net::init_rate_limiter_duration;
 
-use crate::{core::init_context, net::init_rate_limiter_duration_if_needed};
+use crate::{core::{init_context, init_context_if_needed}, net::init_rate_limiter_duration_if_needed};
 
 pub mod core;
 pub mod endpoint_record;
@@ -27,6 +27,7 @@ pub fn init_default() {
 
 pub fn init_default_if_needed() {
     init_rate_limiter_duration_if_needed(2);
+    init_context_if_needed();
 }
 
 pub(crate) trait Sealed {}
