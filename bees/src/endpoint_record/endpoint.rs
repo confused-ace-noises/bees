@@ -44,7 +44,7 @@ impl Endpoint {
     //     Self::new_template(func())
     // }
 
-    pub async fn full_url(&self, format_values: impl Borrow<HashMap<String, String>>, query_params: &Vec<(String, Option<String>)>) -> String {
+    pub async fn full_url(&self, format_values: impl Borrow<HashMap<String, String>>, query_params: &[(String, Option<String>)]) -> String {
         self.0.full_url(format_values, query_params).await
     }
 
@@ -65,17 +65,18 @@ impl Endpoint {
         Arc::clone(&self.0.capabilities)
     }
 
+    #[allow(clippy::type_complexity)]
     /// returns both the record's capabilities and the endpoint's capabilities, `(record capabilities, endpoint capabilities)`
     pub fn all_capabilities(&self) -> (Arc<[Box<dyn Capability>]>, Arc<[Box<dyn Capability>]>) {
-        (Arc::clone(&self.record().capabilities()), Arc::clone(&self.endpoint_capabilities()))
+        (Arc::clone(self.record().capabilities()), Arc::clone(&self.endpoint_capabilities()))
     }
 
     pub fn record_name(&self) -> &String {
-        &self.0.record.record_name()
+        self.0.record.record_name()
     }
 
     pub fn record_constant_url(&self) -> &String {
-        &self.0.record.constant_url()
+        self.0.record.constant_url()
     }
 
     pub fn record(&self) -> &Record {
@@ -174,6 +175,8 @@ impl Borrow<str> for Endpoint {
     }
 }
 
+pub async fn no_op_processor(x: Response) -> Response {x}
+
 pub type ErasedAsyncFn =
     dyn Fn(Response) -> Pin<Box<dyn Future<Output = Box<dyn Any + Send + Sync>> + Send>>
         + Send
@@ -209,7 +212,7 @@ impl EndpointOutput {
             Box::pin(fut)
         });
 
-        if let Some(_) = self.0.insert(type_id, erased) {
+        if self.0.insert(type_id, erased).is_some() {
             panic!("No one endpoint can have multiple output processors that return the same type.")
         }
     }
@@ -220,11 +223,17 @@ impl EndpointOutput {
         resp: Response,
     ) -> O {
         let type_id = TypeId::of::<O>();
-        let func = self.0.get(&type_id).expect(format!("type id {:?} didn't match any output functions for the selected endpoint", type_id).as_str());
+        let func = self.0.get(&type_id).unwrap_or_else(|| panic!("type id {:?} didn't match any output functions for the selected endpoint", type_id));
 
         *func(resp).await.downcast::<O>().unwrap_or_else(|_| {
             panic!("`run` in EndpointOutput could not properly downcast. Report this.")
         })
+    }
+}
+
+impl Default for EndpointOutput {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -300,16 +309,21 @@ impl InnerEndpoint {
         }
     }
 
-    pub(crate) async fn full_url(&self, format_values: impl Borrow<HashMap<String, String>>, query_params: &Vec<(String, Option<String>)>) -> String {
+    pub(crate) async fn full_url(
+        &self, 
+        format_values: impl Borrow<HashMap<String, String>>, 
+        // clippy said to turn this into a [] from a Vec, need to consider if it's actually ergonomic
+        query_params: &[(String, Option<String>)]
+    ) -> String {
         let mut string = format!("{}{}", self.record.constant_url(), self.path.to_formatted_now(format_values).await.expect("TODO: make a decent error system; format values should include all values to be formatted"));
 
 
-        if query_params.len() != 0 {
+        if !query_params.is_empty() {
             // TODO: check if this actually works
             if string.contains("?") {
-                string.push_str("&");
+                string.push('&');
             } else {
-                string.push_str("?");
+                string.push('?');
             }
 
             query_params.iter().for_each(|(key, value)| {
@@ -317,7 +331,7 @@ impl InnerEndpoint {
                 if let Some(value) = value {
                     string.push_str(value);
                 }                 
-                string.push_str("&");
+                string.push('&');
             });
 
             string.pop(); // pops the last & 
@@ -372,13 +386,13 @@ impl Eq for Box<dyn Capability> {}
 
 impl Hash for Box<dyn Capability> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.type_id().hash(state);
+        self.as_ref().type_id().hash(state);
     }
 }
 
 impl std::fmt::Debug for Box<dyn Capability> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Capability {{ type_id: {:?} }}", self.type_id())
+        write!(f, "Capability {{ type_id: {:?} }}", self.as_ref().type_id())
     }
 }
 
@@ -491,7 +505,7 @@ impl FormatString {
                                     }
                                 }
 
-                                a @ _ => part.push(a),
+                                a => part.push(a),
                             }
                         }
 
@@ -513,7 +527,7 @@ impl FormatString {
                     }
                 }
 
-                c @ _ => raw_sting_buffer.push(c),
+                c => raw_sting_buffer.push(c),
             }
         }
 
@@ -532,7 +546,7 @@ impl FormatString {
 
         for part in self.parts.iter() {
             match part {
-                FormattableStringPart::Raw(raw) => result.push_str(&raw),
+                FormattableStringPart::Raw(raw) => result.push_str(raw),
                 FormattableStringPart::HashMapReplace(replace_name) => result.push_str(values.get(replace_name).ok_or("hashmap replace field not specified in values hashmap.")?),
                 FormattableStringPart::ResourceReplace(resource_replace) => {
                     let resource = resource!(option resource_replace);

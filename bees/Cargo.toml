@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-reqwest = "0.12.24" 
+reqwest = "0.13.1" 
 
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "time", "sync"] }
 futures = "0.3.31"
@@ -24,4 +24,5 @@ serde_json = { version = "1.0.145", optional = true }
 [features]
 reqwest_json = ["reqwest/json", "dep:serde_json"]
 reqwest_multipart = ["reqwest/multipart"]
-per_domain_ratelimiter = []
+reqwest_query = ["reqwest/query"]
+reqwest_form = ["reqwest/form"]

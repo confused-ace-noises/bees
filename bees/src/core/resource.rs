@@ -160,7 +160,7 @@ impl ResourceManager {
 
     #[inline]
     pub fn get_resource(&self, ident: &str) -> Option<DynResource> {
-        self.get_resource_ref(ident).and_then(|x| Some(x.clone()))
+        self.get_resource_ref(ident).map(|x| x.clone())
     }
 
     #[inline]

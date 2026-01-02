@@ -32,7 +32,7 @@ impl RecordManager {
     }
 
     pub fn get_record(&self, record_name: &str) -> Option<Record> {
-        self.get_record_ref(record_name).and_then(|inner| Some(inner.clone()))
+        self.get_record_ref(record_name).map(|inner| inner.clone())
     }
 }
 
@@ -59,7 +59,7 @@ impl Record {
     }
 
     pub fn get_endpoint(&self, name: &str) -> Option<Endpoint> {
-        self.0.endpoints.get(name).and_then(|inner| Some(inner.clone()) )
+        self.0.endpoints.get(name).map(|inner| inner.clone())
     }
 
     pub fn remove_endpoint(&self, name: &str) -> Option<Endpoint> {
@@ -187,7 +187,7 @@ impl hash::Hash for InnerRecord {
 async fn test() {
     use crate::endpoint_record::endpoint::FormatString;
     use std::collections::HashMap;
-    let ps = FormatString::new("api/<<user>>/<id>/details/<detail<<_id>".to_string());
+    let ps = FormatString::new("api/<<user>>/<id>/details/<detail<<_id>");
     assert_eq!(
         ps.to_formatted_now(HashMap::from([
             ("id".to_string(), "something".to_string()),

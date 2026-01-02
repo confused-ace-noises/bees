@@ -101,10 +101,7 @@ impl Client {
             HttpVerb::POST(body)
             | HttpVerb::PUT(body)
             | HttpVerb::PATCH(body)
-            | HttpVerb::DELETE(Some(body)) => {
-                let request = request.body(body.to_formatted(parse_values).await);
-                request
-            }
+            | HttpVerb::DELETE(Some(body)) => request.body(body.to_formatted(parse_values).await)
         };
 
         let capabilities = endpoint.all_capabilities();
@@ -150,8 +147,8 @@ impl Client {
             client: self.clone(),
             handler,
             endpoint,
-            parse_values: parse_values,
-            query_values: query_values,
+            parse_values,
+            query_values,
         }
     }
 
@@ -168,23 +165,18 @@ impl Client {
     }
 }
 
-pub struct RequestRunner<'a, E: Error + Send + 'static> {
+pub struct RequestRunner<'a, E: Send + 'a> {
     client: Client,
     handler: Handler<'a, E>,
     request: Request,
 }
 
-impl<'a, E: Error + Send + 'static> RequestRunner<'a, E>
-where
-    E: Error + Send + 'static,
-{
-    pub fn decorate<G: Error + Send + 'a>(
-        self,
-        decorator: &'a dyn RequestDecorator<E, G>,
-    ) -> RequestRunner<'a, G>
-    where
-        G: 'a,
-    {
+impl<'a, E: Send + 'a> Sealed for RequestRunner<'a, E>{}
+
+impl<'a, E: Send + 'a, G: Send + 'a> Decorate<'a, E, G> for RequestRunner<'a, E> {
+    type Output = RequestRunner<'a, G>;
+
+    fn decorate<T: RequestDecorator<E, G> + 'a + ?Sized>(self, decorator: &'a T) -> Self::Output {
         let new_handler = self.handler.decorate(decorator);
         RequestRunner {
             client: self.client,
@@ -192,7 +184,12 @@ where
             request: self.request,
         }
     }
+}
 
+impl<'a, E: Error + Send + 'static> RequestRunner<'a, E>
+where
+    E: Error + Send + 'static,
+{
     pub async fn run(self) -> Result<Response, Box<dyn Error>> {
         Ok((self.handler)(self.request).await?)
     }
@@ -208,33 +205,27 @@ pub struct EndpointRunner<'a, E: Send> {
 
 impl<'a, E: Send> Sealed for EndpointRunner<'a, E>{}
 
-// impl<'a, E: Send + 'a> Decorate<'a, E> for EndpointRunner<'a, E> {
-//     fn decorate<G: Send, T: RequestDecorator<'a, E, G> + 'a + ?Sized>(self, decorator: &'a T)-> Handler<'a, G>
-//     where
-//         G: 'a 
-//     {
-//         todo!()
-//     }
-// }
+impl<'a, E, G> Decorate<'a, E, G> for EndpointRunner<'a, E> 
+where
+    E: Send + 'a,
+    G: Send + 'a,
+{
+    type Output = EndpointRunner<'a, G>;
+
+    fn decorate<T: RequestDecorator<E, G> + 'a + ?Sized>(self, decorator: &'a T)-> Self::Output
+    {
+        let new_handler = self.handler.decorate(decorator);
+        EndpointRunner {
+            client: self.client,
+            handler: new_handler,
+            endpoint: self.endpoint,
+            parse_values: self.parse_values,
+            query_values: self.query_values,
+        }
+    }
+}
 
 impl<'a, E: Error + Send + 'static> EndpointRunner<'a, E> {
-    // pub fn decorate<G: Error + Send + 'a, D: RequestDecorator<E, G>>(
-    //     self,
-    //     decorator: &'a D,
-    // ) -> EndpointRunner<'a, G>
-    // where
-    //     G: 'a,
-    // {
-    //     let new_handler = self.handler.decorate(decorator);
-    //     EndpointRunner {
-    //         client: self.client,
-    //         handler: new_handler,
-    //         endpoint: self.endpoint,
-    //         parse_values: self.parse_values,
-    //         query_values: self.query_values,
-    //     }
-    // }
-
     pub async fn run_resp(self) -> Result<Response, Box<dyn Error>> {
         let req = self
             .client
@@ -303,9 +294,11 @@ impl RequestBuilder {
             #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
             pub fn headers(self, headers: reqwest::header::HeaderMap) -> RequestBuilder;
 
+            #[cfg(feature = "reqwest_query")]
             #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
             pub fn query<T: ?Sized + serde::Serialize>(self, query: &T) -> RequestBuilder;
 
+            #[cfg(feature = "reqwest_form")]
             #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
             pub fn form<T: ?Sized + serde::Serialize>(self, form: &T) -> RequestBuilder;
 
