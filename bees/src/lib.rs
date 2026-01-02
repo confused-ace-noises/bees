@@ -8,13 +8,6 @@ pub mod net;
 
 pub use dashmap;
 
-// TODO: fix macros with EndpointTemplate and also maybe a post-response processing function on endpoints?
-
-// idea: for making the post-response processing funcs work with general macros,
-// make a special trait that already defines run() and then the func gets turned into
-// a struct implementing that trait and `client` runs it through a specilized run_trait
-// function
-
 pub fn init(rate: usize) {
     init_rate_limiter_duration(rate);
     init_context();
@@ -31,3 +24,11 @@ pub fn init_default_if_needed() {
 }
 
 pub(crate) trait Sealed {}
+
+pub mod prelude {
+    pub use crate::net::client::{Client, EndpointRunner};
+    pub use crate::{init, endpoint, record, resource};
+    pub use crate::core::{client, resource::Resource, resources_utils::static_res::StaticResource};
+    pub use crate::endpoint_record::endpoint::{Endpoint, FormatString, HttpVerb, Capability};
+    pub use crate::endpoint_record::record::Record;
+}

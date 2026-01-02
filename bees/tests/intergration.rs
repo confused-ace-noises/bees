@@ -1,13 +1,14 @@
 use std::{collections::HashMap, time::Duration};
 
 use bees::{
-    self, handler_helper,
+    self,
     core::client,
     endpoint,
     endpoint_record::{
         endpoint::{Capability, HttpVerb, no_op_processor},
         request_decorator::{Decorate, MultipleDecorators, RequestDecorator, Retries},
     },
+    handler_helper,
     net::client::Request,
     record,
 };
@@ -38,7 +39,8 @@ pub fn record_macro() {
     let simple_caps = record!("simple_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
 
     let _noreg = record!("simple_noreg" => "https://my.api.com/api/");
-    let _noreg_caps = record!("simple_noreg_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
+    let _noreg_caps =
+        record!("simple_noreg_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
 
     let (multiple_simple, multiple_simple_caps) = record!("multiple_simple" => "https://my.api.com/api/", "multiple_simple_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
     let (_multiple_noreg, _multiple_noreg_caps) = record!(noreg "multiple_noreg" => "https://my.api.com/api/", "multiple_noreg_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
@@ -92,6 +94,7 @@ where
 
 #[test]
 pub fn decorators() {
+    bees::init_default_if_needed();
     let client: &'static bees::net::client::Client = client();
 
     record!("decorators_record" => "https://my.api.com/api/");
@@ -100,11 +103,16 @@ pub fn decorators() {
     let multiple_decs: MultipleDecorators<_, reqwest::Error> =
         MultipleDecorators::new(Retries::new(3, Duration::from_millis(200))).push(DummyDecorator1);
 
-    client
+    let hashmap = HashMap::new();
+    let query_vals = vec![];
+
+    let endpoint_runner = client
         .run_endpoint(
             endpoint!("decorators_record" => "decorators_endpoint"),
-            &HashMap::new(),
-            &vec![],
+            &hashmap,
+            &query_vals,
         )
         .decorate(&multiple_decs);
+
+    println!("{:#?}", endpoint_runner)
 }

@@ -68,19 +68,19 @@ impl Endpoint {
     #[allow(clippy::type_complexity)]
     /// returns both the record's capabilities and the endpoint's capabilities, `(record capabilities, endpoint capabilities)`
     pub fn all_capabilities(&self) -> (Arc<[Box<dyn Capability>]>, Arc<[Box<dyn Capability>]>) {
-        (Arc::clone(self.record().capabilities()), Arc::clone(&self.endpoint_capabilities()))
+        (Arc::clone(self.record_info().capabilities()), Arc::clone(&self.endpoint_capabilities()))
     }
 
     pub fn record_name(&self) -> &String {
-        self.0.record.record_name()
+        self.0.record_info.record_name()
     }
 
     pub fn record_constant_url(&self) -> &String {
-        self.0.record.constant_url()
+        self.0.record_info.constant_url()
     }
 
-    pub fn record(&self) -> &Record {
-        &self.0.record
+    pub(crate) fn record_info(&self) -> &RecordInfo {
+        &self.0.record_info
     }
 
     pub async fn endpoint_output_specific<T: Any + Send + Sync + 'static>(&self, resp: Response) -> T {
@@ -252,12 +252,54 @@ impl fmt::Debug for EndpointOutput {
 }
 
 #[derive(Debug)]
+pub(crate) struct RecordInfo {
+    pub(super) record_name: String,
+    pub(super) constant_url: String,
+    pub(super) shared_capabilities: Arc<[Box<dyn Capability>]>
+}
+
+impl From<Record> for RecordInfo {
+    fn from(value: Record) -> Self {
+        RecordInfo { record_name: value.record_name().clone(), constant_url: value.constant_url().clone(), shared_capabilities: value.capabilities().clone() }
+    }
+}
+
+impl From<&Record> for RecordInfo {
+    fn from(value: &Record) -> Self {
+        RecordInfo { record_name: value.record_name().clone(), constant_url: value.constant_url().clone(), shared_capabilities: value.capabilities().clone() }
+    }
+}
+
+
+impl RecordInfo {
+    pub fn record_name(&self) -> &String {
+        &self.record_name
+    } 
+    
+    pub fn constant_url(&self) -> &String {
+        &self.constant_url
+    }
+
+    pub fn capabilities(&self) -> &Arc<[Box<dyn Capability>]> {
+        &self.shared_capabilities
+    }
+}
+
+impl PartialEq for RecordInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.record_name == other.record_name && self.constant_url == other.constant_url && self.shared_capabilities == other.shared_capabilities
+    }
+}
+
+impl Eq for RecordInfo{}
+
+#[derive(Debug)]
 pub(crate) struct InnerEndpoint {
     pub(crate) name: String,
     pub(crate) path: FormatString,
     pub(crate) http_verb: HttpVerb,
     pub(crate) capabilities: Arc<[Box<dyn Capability>]>, // only endpoint caps
-    pub(crate) record: Record,
+    pub(crate) record_info: RecordInfo,
     pub(crate) endpoint_outputs: EndpointOutput,
 
 }
@@ -300,7 +342,7 @@ impl InnerEndpoint {
         }
 
         Self {
-            record: record.clone(),
+            record_info: record.into(),
             name,
             path,
             http_verb: http_enum,
@@ -315,7 +357,7 @@ impl InnerEndpoint {
         // clippy said to turn this into a [] from a Vec, need to consider if it's actually ergonomic
         query_params: &[(String, Option<String>)]
     ) -> String {
-        let mut string = format!("{}{}", self.record.constant_url(), self.path.to_formatted_now(format_values).await.expect("TODO: make a decent error system; format values should include all values to be formatted"));
+        let mut string = format!("{}{}", self.record_info.constant_url(), self.path.to_formatted_now(format_values).await.expect("TODO: make a decent error system; format values should include all values to be formatted"));
 
 
         if !query_params.is_empty() {
@@ -349,7 +391,7 @@ impl Borrow<str> for InnerEndpoint {
 
 impl PartialEq for InnerEndpoint {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.record == other.record
+        self.name == other.name && self.record_info == other.record_info
     }
 }
 impl Eq for InnerEndpoint {}

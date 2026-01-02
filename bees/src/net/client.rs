@@ -8,7 +8,7 @@ use reqwest::{
     header::{HeaderName, HeaderValue},
 };
 use std::{
-    any::Any, borrow::Borrow, collections::HashMap, error::Error, fmt, sync::Arc, time::Duration
+    any::Any, borrow::Borrow, collections::HashMap, error::Error, fmt::{self, Debug}, sync::Arc, time::Duration
 };
 
 use delegate::delegate;
@@ -201,6 +201,12 @@ pub struct EndpointRunner<'a, E: Send> {
     endpoint: Endpoint,
     parse_values: &'a HashMap<String, String>,
     query_values: &'a Vec<(String, Option<String>)>,
+}
+
+impl<'a, E: Send> Debug for EndpointRunner<'a, E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EndpointRunner").field("client", &self.client).field("handler", &"Handler<'a, E> = Arc<dyn Fn(Request) -> Pin<Box<dyn Future<Output = Result<Response, E>> + Send + 'a>> + Send + Sync + 'a>;").field("endpoint", &self.endpoint).field("parse_values", &self.parse_values).field("query_values", &self.query_values).finish()
+    }
 }
 
 impl<'a, E: Send> Sealed for EndpointRunner<'a, E>{}
