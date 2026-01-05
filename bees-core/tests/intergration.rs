@@ -1,46 +1,39 @@
-use std::{collections::HashMap, time::Duration};
-
-use bees::{
-    self,
-    core::client,
-    endpoint,
-    endpoint_record::{
-        endpoint::{Capability, HttpVerb, no_op_processor},
-        request_decorator::{Decorate, MultipleDecorators, RequestDecorator, Retries},
-    },
+use bees_core::{
+    capability::Capability,
     handler_helper,
-    net::client::Request,
-    record,
+    net::{client::Handler, request::RequestBuilder},
+    prelude::*,
+    request_decorator::{
+        Decorate, RequestDecorator, multiple_decorators::MultipleDecorators, retries::Retries,
+    },
 };
+use std::{collections::HashMap, time::Duration};
 
 pub struct DummyCap;
 
 impl Capability for DummyCap {
-    fn apply(
-        &self,
-        request: bees::net::client::RequestBuilder,
-    ) -> bees::net::client::RequestBuilder {
+    fn apply(&self, request: RequestBuilder) -> RequestBuilder {
         request.header("hello", "world")
     }
 }
 
 #[test]
 pub fn make_record_simple() {
-    bees::init_default_if_needed();
+    bees_core::init_default_if_needed();
 
     record!("make_record_simple" => "https://my.api.com/api/");
 }
 
 #[test]
 pub fn record_macro() {
-    bees::init_default_if_needed();
+    bees_core::init_default_if_needed();
 
     let simple = record!("simple" => "https://my.api.com/api/");
     let simple_caps = record!("simple_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
 
-    let _noreg = record!("simple_noreg" => "https://my.api.com/api/");
+    let _noreg = record!(noreg "simple_noreg" => "https://my.api.com/api/");
     let _noreg_caps =
-        record!("simple_noreg_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
+        record!(noreg "simple_noreg_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
 
     let (multiple_simple, multiple_simple_caps) = record!("multiple_simple" => "https://my.api.com/api/", "multiple_simple_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
     let (_multiple_noreg, _multiple_noreg_caps) = record!(noreg "multiple_noreg" => "https://my.api.com/api/", "multiple_noreg_caps" => "https://my.api.com/api/"; [DummyCap, DummyCap]);
@@ -60,7 +53,7 @@ pub fn record_macro() {
 
 #[test]
 pub fn make_endpoint_simple() {
-    bees::init_default_if_needed();
+    bees_core::init_default_if_needed();
 
     record!("make_endpoint_simple_record" => "https://my.api.com/api/");
     endpoint!("make_endpoint_simple_record" => new "make_endpoint_simple", "ednpointpath", HttpVerb::GET, async |x| x.text().await);
@@ -72,10 +65,7 @@ where
     E: Send,
     G: Send + From<E>,
 {
-    fn decorate<'a>(
-        &self,
-        f: bees::endpoint_record::request_decorator::Handler<'a, E>,
-    ) -> bees::endpoint_record::request_decorator::Handler<'a, G>
+    fn decorate<'a>(&self, f: Handler<'a, E>) -> Handler<'a, G>
     where
         E: 'a,
         G: 'a,
@@ -94,8 +84,8 @@ where
 
 #[test]
 pub fn decorators() {
-    bees::init_default_if_needed();
-    let client: &'static bees::net::client::Client = client();
+    bees_core::init_default_if_needed();
+    let client: &'static bees_core::net::client::Client = client();
 
     record!("decorators_record" => "https://my.api.com/api/");
     endpoint!("decorators_record" => new "decorators_endpoint", "endpoint/path", HttpVerb::GET, no_op_processor);

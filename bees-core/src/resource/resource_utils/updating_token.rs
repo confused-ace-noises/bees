@@ -5,11 +5,10 @@ use std::{collections::HashMap, error::Error, fmt::Display};
 use tokio::{sync::RwLock, time::Instant};
 
 use crate::{
-    core::{client, resource::Resource},
+    net::client,
+    resource::resource::Resource,
     endpoint,
-    endpoint_record::{
-        endpoint::Endpoint,
-    },
+    endpoint::Endpoint,
 };
 
 #[derive(Debug)]

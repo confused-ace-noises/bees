@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "bees",
+    "bees-core",
     "bees-macros",
+    "bees-testing"
 ]
 resolver = "3"

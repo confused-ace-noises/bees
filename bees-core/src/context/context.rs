@@ -1,4 +1,9 @@
-use crate::{core::resource::ResourceManager, endpoint_record::record::{RecordManager}};
+use std::sync::OnceLock;
+
+use crate::resource::ResourceManager;
+use crate::record::RecordManager;
+
+pub(crate) static CONTEXT: OnceLock<Context> = OnceLock::new();
 
 #[derive(Debug)]
 pub struct Context {

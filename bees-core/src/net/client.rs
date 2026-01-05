@@ -1,17 +1,23 @@
-use crate::{Sealed, endpoint_record::{
-    endpoint::{Endpoint, HttpVerb},
-    request_decorator::{Decorate, Handler, RequestDecorator},
-}, net::get_rate_limiter};
+use crate::{Sealed, endpoint::Endpoint, net::get_rate_limiter, request_decorator::{Decorate, RequestDecorator}};
 use async_rate_limiter::RateLimiter;
 use reqwest::{
     Client as ReqClient, Method, Response, Url,
-    header::{HeaderName, HeaderValue},
 };
 use std::{
-    any::Any, borrow::Borrow, collections::HashMap, error::Error, fmt::{self, Debug}, sync::Arc, time::Duration
+    any::Any, borrow::Borrow, collections::HashMap, error::Error, fmt::{self, Debug}, pin::Pin, sync::Arc
 };
 
-use delegate::delegate;
+use super::request::{Request, RequestBuilder, Body, RequestRunner};
+
+pub type Handler<'a, E> = 
+    Arc<
+        dyn Fn(Request) -> Pin<
+                Box<
+                    dyn Future<
+                        Output = Result<Response, E>
+                > + Send + 'a>
+            > + Send + Sync + 'a
+    >;
 
 #[derive(Clone)]
 pub struct Client {
@@ -132,7 +138,7 @@ impl Client {
     pub(crate) fn endpoint_handler<'a>(&'a self) -> Handler<'a, reqwest::Error> {
         Arc::new(move |req: Request| Box::pin(async move { self.execute(req).await }))
     }
-
+ 
     pub fn run_endpoint<'a, 'b>(
         &'a self,
         endpoint: Endpoint,
@@ -165,36 +171,6 @@ impl Client {
     }
 }
 
-pub struct RequestRunner<'a, E: Send + 'a> {
-    client: Client,
-    handler: Handler<'a, E>,
-    request: Request,
-}
-
-impl<'a, E: Send + 'a> Sealed for RequestRunner<'a, E>{}
-
-impl<'a, E: Send + 'a, G: Send + 'a> Decorate<'a, E, G> for RequestRunner<'a, E> {
-    type Output = RequestRunner<'a, G>;
-
-    fn decorate<T: RequestDecorator<E, G> + 'a + ?Sized>(self, decorator: &'a T) -> Self::Output {
-        let new_handler = self.handler.decorate(decorator);
-        RequestRunner {
-            client: self.client,
-            handler: new_handler,
-            request: self.request,
-        }
-    }
-}
-
-impl<'a, E: Error + Send + 'static> RequestRunner<'a, E>
-where
-    E: Error + Send + 'static,
-{
-    pub async fn run(self) -> Result<Response, Box<dyn Error>> {
-        Ok((self.handler)(self.request).await?)
-    }
-}
-
 pub struct EndpointRunner<'a, E: Send> {
     client: Client,
     handler: Handler<'a, E>,
@@ -218,7 +194,7 @@ where
 {
     type Output = EndpointRunner<'a, G>;
 
-    fn decorate<T: RequestDecorator<E, G> + 'a + ?Sized>(self, decorator: &'a T)-> Self::Output
+    fn decorate<T: RequestDecorator<E, G> + 'a + ?Sized>(self, decorator: &'a T) -> Self::Output
     {
         let new_handler = self.handler.decorate(decorator);
         EndpointRunner {
@@ -258,158 +234,27 @@ impl<'a, E: Error + Send + 'static> EndpointRunner<'a, E> {
     }
 }
 
-pub struct RequestBuilder {
-    inner: reqwest::RequestBuilder,
-    rate_limiter: &'static RateLimiter,
+
+#[derive(Debug)]
+pub enum HttpVerb {
+    GET,
+    POST(Body),
+    PUT(Body),
+    DELETE(Option<Body>),
+    PATCH(Body),
+    OPTIONS,
+    HEAD,
 }
-
-impl fmt::Debug for RequestBuilder {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RequestBuilder").field("inner", &self.inner).field("rate_limiter", &"async_rate_limiter internals").finish()
-    }
-}
-
-impl RequestBuilder {
-    delegate! {
-        to self.inner {
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn basic_auth<U, P>(self, username: U, password: Option<P>) -> RequestBuilder
-            where
-                U: std::fmt::Display,
-                P: std::fmt::Display;
-
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn bearer_auth<T>(self, token: T) -> RequestBuilder
-            where
-                T: std::fmt::Display;
-
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn body<T>(self, body: T) -> RequestBuilder
-            where
-                T: Into<reqwest::Body>;
-
-
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn header<K, V>(self, key: K, value: V) -> RequestBuilder
-            where
-                HeaderName: TryFrom<K>,
-                <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
-                HeaderValue: TryFrom<V>,
-                <HeaderValue as TryFrom<V>>::Error: Into<http::Error>;
-
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn headers(self, headers: reqwest::header::HeaderMap) -> RequestBuilder;
-
-            #[cfg(feature = "reqwest_query")]
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn query<T: ?Sized + serde::Serialize>(self, query: &T) -> RequestBuilder;
-
-            #[cfg(feature = "reqwest_form")]
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn form<T: ?Sized + serde::Serialize>(self, form: &T) -> RequestBuilder;
-
-            #[cfg(feature = "reqwest_json")]
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn json<T: ?Sized + serde::Serialize>(self, json: &T) -> RequestBuilder;
-
-            #[cfg(feature = "reqwest_multipart")]
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn multipart(self, form: reqwest::multipart::Form) -> RequestBuilder;
-
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn version(self, version: reqwest::Version) -> RequestBuilder;
-
-            #[expr(Self { inner: $, rate_limiter: self.rate_limiter })]
-            pub fn timeout(self, timeout: std::time::Duration) -> RequestBuilder;
-
+impl HttpVerb {
+    pub fn as_method(&self) -> Method {
+        match self {
+            HttpVerb::GET => Method::GET,
+            HttpVerb::POST(_) => Method::POST,
+            HttpVerb::PUT(_) => Method::PUT,
+            HttpVerb::DELETE(_) => Method::DELETE,
+            HttpVerb::PATCH(_) => Method::PATCH,
+            HttpVerb::OPTIONS => Method::OPTIONS,
+            HttpVerb::HEAD => Method::HEAD,
         }
     }
-
-    pub fn build(self) -> Result<Request, reqwest::Error> {
-        Ok(Request {
-            inner: self.inner.build()?,
-            rate_limiter: self.rate_limiter,
-        })
-    }
-
-    pub async fn send(self) -> Result<Response, reqwest::Error> {
-        self.rate_limiter.acquire().await;
-        self.inner.send().await
-    }
-}
-
-pub struct Request {
-    inner: reqwest::Request,
-    rate_limiter: &'static RateLimiter,
-}
-
-impl fmt::Debug for Request {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Request").field("inner", &self.inner).field("rate_limiter", &"async_rate_limiter internals").finish()
-    }
-}
-
-impl Request {
-    delegate! {
-        to self.inner {
-            // pub fn try_clone(&self) -> Option<Request>;
-            pub fn body(&self) -> Option<&reqwest::Body>;
-            pub fn body_mut(&mut self) -> &mut Option<reqwest::Body>;
-
-            pub fn headers(&self) -> &reqwest::header::HeaderMap;
-            pub fn headers_mut(&mut self) -> &mut reqwest::header::HeaderMap;
-
-            pub fn method(&self) -> &reqwest::Method;
-            pub fn method_mut(&mut self) -> &mut reqwest::Method;
-
-            pub fn timeout(&self) -> Option<&Duration>;
-            pub fn timeout_mut(&mut self) -> &mut Option<Duration>;
-
-            pub fn url(&self) -> &reqwest::Url;
-            pub fn url_mut(&mut self) -> &mut reqwest::Url;
-
-            pub fn version(&self) -> reqwest::Version;
-            pub fn version_mut(&mut self) -> &mut reqwest::Version;
-
-            #[expr(Some(Self { inner: $?, rate_limiter: self.rate_limiter }))]
-            pub fn try_clone(&self) -> Option<Request>;
-        }
-    }
-}
-
-impl<T> TryFrom<http::Request<T>> for Request
-where
-    T: Into<reqwest::Body>,
-{
-    type Error = reqwest::Error;
-
-    fn try_from(value: http::Request<T>) -> Result<Self, Self::Error> {
-        let reqwest_request = reqwest::Request::try_from(value)?;
-        Ok(Self {
-            inner: reqwest_request,
-            rate_limiter: get_rate_limiter(),
-        })
-    }
-}
-
-impl TryFrom<Request> for http::Request<reqwest::Body> {
-    type Error = reqwest::Error;
-
-    fn try_from(value: Request) -> Result<Self, Self::Error> {
-        let http_request = http::Request::try_from(value.inner)?;
-        Ok(http_request)
-    }
-}
-
-#[tokio::test]
-async fn test() {
-    crate::init_default();
-    use crate::core::client;
-    let client = client();
-    let _ = client
-        .reqwest_direct(|reqclient| {
-            let req: reqwest::Request = reqclient.get("https://www.fanton.com/").build()?;
-            Ok(reqclient.execute(req))
-        })
-        .await;
 }

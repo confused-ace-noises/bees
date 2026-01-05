@@ -1,6 +1,9 @@
 use std::sync::OnceLock;
 use async_rate_limiter::RateLimiter;
+
+use crate::context::context;
 pub mod client;
+pub mod request;
 
 static RATE_LIMITER_DURATION: OnceLock<RateLimiter> = OnceLock::new();
 
@@ -18,4 +21,8 @@ pub(super) fn init_rate_limiter_duration(rate: usize) {
 
 pub(super) fn init_rate_limiter_duration_if_needed(rate: usize) {
     let _ = RATE_LIMITER_DURATION.set(RateLimiter::new(rate));
+}
+
+pub fn client() -> &'static crate::net::client::Client {
+    &context().client
 }

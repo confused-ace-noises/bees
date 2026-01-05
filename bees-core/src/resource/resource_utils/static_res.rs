@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use async_trait::async_trait;
 
-use crate::core::resource::Resource;
+use crate::resource::resource::Resource;
 
 #[derive(Debug)]
 pub struct StaticResource {

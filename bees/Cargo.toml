@@ -4,25 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-reqwest = "0.13.1" 
-
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "time", "sync"] }
-futures = "0.3.31"
-
-delegate = "0.13.4"
-serde = "1.0.228"
-http = "1.1" # follow reqwest's
-async-rate-limiter = "1.1.0"
-
-dashmap = "6.1.0"
-async-trait = "0.1.89"
-
-bitflags = "2.10.0"
-
-serde_json = { version = "1.0.145", optional = true }
-
+bees-core = { path = "../bees-core" }
+bees-macros = { path = "../bees-macros", optional = true }
 [features]
-reqwest_json = ["reqwest/json", "dep:serde_json"]
-reqwest_multipart = ["reqwest/multipart"]
-reqwest_query = ["reqwest/query"]
-reqwest_form = ["reqwest/form"]
+derive = ["bees-macros"]

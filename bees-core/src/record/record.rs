@@ -3,7 +3,7 @@ use std::{borrow::Borrow, sync::Arc};
 
 use dashmap::{DashSet, setref::one::Ref};
 
-use crate::endpoint_record::endpoint::{Capability, Endpoint};
+use crate::{capability::Capability, endpoint::Endpoint};
 
 #[derive(Debug)]
 pub struct RecordManager {
@@ -183,9 +183,50 @@ impl hash::Hash for InnerRecord {
     }
 }
 
+#[derive(Debug)]
+pub struct RecordInfo {
+    pub(crate) record_name: String,
+    pub(crate) constant_url: String,
+    pub(crate) shared_capabilities: Arc<[Box<dyn Capability>]>
+}
+
+impl From<Record> for RecordInfo {
+    fn from(value: Record) -> Self {
+        RecordInfo { record_name: value.record_name().clone(), constant_url: value.constant_url().clone(), shared_capabilities: value.capabilities().clone() }
+    }
+}
+
+impl From<&Record> for RecordInfo {
+    fn from(value: &Record) -> Self {
+        RecordInfo { record_name: value.record_name().clone(), constant_url: value.constant_url().clone(), shared_capabilities: value.capabilities().clone() }
+    }
+}
+
+impl RecordInfo {
+    pub fn record_name(&self) -> &String {
+        &self.record_name
+    } 
+    
+    pub fn constant_url(&self) -> &String {
+        &self.constant_url
+    }
+
+    pub fn capabilities(&self) -> &Arc<[Box<dyn Capability>]> {
+        &self.shared_capabilities
+    }
+}
+
+impl PartialEq for RecordInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.record_name == other.record_name && self.constant_url == other.constant_url && self.shared_capabilities == other.shared_capabilities
+    }
+}
+
+impl Eq for RecordInfo{}
+
 #[tokio::test]
 async fn test() {
-    use crate::endpoint_record::endpoint::FormatString;
+    use crate::utils::FormatString;
     use std::collections::HashMap;
     let ps = FormatString::new("api/<<user>>/<id>/details/<detail<<_id>");
     assert_eq!(
