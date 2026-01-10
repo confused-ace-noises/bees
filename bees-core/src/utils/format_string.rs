@@ -1,5 +1,4 @@
-use crate::resource;
-
+use crate::{resource, utils::Error};
 
 #[derive(Debug, Clone)]
 pub struct FormatString {
@@ -52,12 +51,7 @@ impl FormatString {
                             }
                         }
 
-                        if part.starts_with('?') {
-                            let part = part.chars().skip(1).collect::<String>();
-                            parts.push(FormattableStringPart::ResourceReplace(part));
-                        } else {
-                            parts.push(FormattableStringPart::HashMapReplace(part));
-                        }
+                        parts.push(FormattableStringPart::ResourceReplace(part));
                     }
                 },
 
@@ -83,19 +77,17 @@ impl FormatString {
         }
     }
 
-    pub async fn to_formatted_now(&self, values: impl std::borrow::Borrow<std::collections::HashMap<String, String>>) -> Result<String, &'static str> {
-        let values = values.borrow();
+    pub async fn to_formatted_now(&self) -> Result<String, Error> {
         let mut result = String::new();
 
         for part in self.parts.iter() {
             match part {
                 FormattableStringPart::Raw(raw) => result.push_str(raw),
-                FormattableStringPart::HashMapReplace(replace_name) => result.push_str(values.get(replace_name).ok_or("hashmap replace field not specified in values hashmap.")?),
                 FormattableStringPart::ResourceReplace(resource_replace) => {
                     let resource = resource!(option resource_replace);
                     // println!("{:#?}", resource);
                     // println!("{}", resource_replace);
-                    let resource = resource.ok_or("No resource with that name registered. Did you spell it right?")?;
+                    let resource = resource.ok_or(Error::ResourceError("No resource with that name registered. Did you spell it right?".to_string()))?;
 
                     let data = resource.data().await;
                     result.push_str(&data.to_string());
@@ -128,6 +120,5 @@ impl<S: Into<String>> From<S> for FormatString {
 #[derive(Debug, Clone)]
 pub enum FormattableStringPart {
     Raw(String),
-    HashMapReplace(String),
     ResourceReplace(String),
 }

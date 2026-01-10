@@ -6,5 +6,13 @@ edition = "2024"
 [dependencies]
 bees-core = { path = "../bees-core" }
 bees-macros = { path = "../bees-macros", optional = true }
+
 [features]
 derive = ["bees-macros"]
+reqwest_json = ["bees-core/reqwest_json"]
+# reqwest_multipart = ["bees-core/reqwest_multipart"]
+reqwest_query = ["bees-core/reqwest_query"]
+reqwest_form = ["bees-core/reqwest_form"]
+
+[profile.release]
+opt-level = 3

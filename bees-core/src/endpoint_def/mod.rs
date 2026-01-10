@@ -31,13 +31,13 @@ pub use endpoint::*;
 macro_rules! endpoint {
     (noreg $record:expr => new $name:expr, $path:expr, $http_verb:expr, $($func:expr),+ $(,)? $(; [$($capability:expr),*] )? $(,)?) => {
         {
-            let mut __endpoint_macro_endpoint_builder = $crate::endpoint::Endpoint::builder_template(
-                $crate::endpoint::EndpointTemplate {
+            let mut __endpoint_macro_endpoint_builder = $crate::endpoint_def::Endpoint::builder_template(
+                $crate::endpoint_def::EndpointTemplate {
                     record_name: ::std::convert::Into::into($record),
                     name: ::std::convert::Into::into($name),
                     path: ::std::convert::Into::into($path),
                     http_verb: $http_verb,
-                    capabilities: ::std::sync::Arc::new([$($($crate::endpoint_record::IntoBoxedCapability::into_boxed_capability($capability)),*)?]),
+                    capabilities: ::std::sync::Arc::new([$($($crate::capability::IntoBoxedCapability::into_boxed_capability($capability)),*)?]),
                 }
             );
 
@@ -110,15 +110,15 @@ macro_rules! endpoint {
     };
 
     ($record:expr => $endpoint:expr) => {
-        $crate::record::record_manager()
+        $crate::record_def::record_manager()
             .get_record(::std::convert::AsRef::as_ref($record))
             .expect("endpoint!: tried to access a non-existent record")
-            .get_endpoint(::std::convert::AsRef::as_ref(($endpoint)))
+            .get_endpoint(::std::convert::AsRef::as_ref($endpoint))
             .expect("endpoint!: tried to access a non-existent endpoint")
     };
 
     (option $record:expr =>  $endpoint:expr) => {
-        $crate::record::record_manager()
+        $crate::record_def::record_manager()
             .get_record(::std::convert::AsRef::as_ref($record))
             .and_then(|inner| inner.get_endpoint($endpoint))
     };

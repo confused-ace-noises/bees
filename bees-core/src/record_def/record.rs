@@ -3,7 +3,7 @@ use std::{borrow::Borrow, sync::Arc};
 
 use dashmap::{DashSet, setref::one::Ref};
 
-use crate::{capability::Capability, endpoint::Endpoint};
+use crate::{capability::Capability, endpoint_def::Endpoint};
 
 #[derive(Debug)]
 pub struct RecordManager {
@@ -226,14 +226,20 @@ impl Eq for RecordInfo{}
 
 #[tokio::test]
 async fn test() {
+    use crate::{resource, resource_def::resource_utils::static_res::StaticResource};
+
+    use crate::init_default_if_needed;    
     use crate::utils::FormatString;
-    use std::collections::HashMap;
+    init_default_if_needed();
+
+    resource!(reg 
+        StaticResource { name: "id".to_string(), data: "something".to_string() }, 
+        StaticResource {name: "detail<_id".to_string(), data: "hii".to_string()}
+    );
+    
     let ps = FormatString::new("api/<<user>>/<id>/details/<detail<<_id>");
     assert_eq!(
-        ps.to_formatted_now(HashMap::from([
-            ("id".to_string(), "something".to_string()),
-            ("detail<_id".to_string(), "hii".to_string())
-        ]))
+        ps.to_formatted_now()
         .await
         .unwrap(),
         "api/<user>/something/details/hii"

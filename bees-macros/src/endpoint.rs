@@ -58,8 +58,8 @@ pub fn endpoint_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2:
                 ])
             }
 
-            pub fn endpoint_builder() -> ::bees::endpoint::EndpointBuilder {
-                let template = ::bees::endpoint::EndpointTemplate {
+            pub fn endpoint_builder() -> ::bees::endpoint_def::EndpointBuilder {
+                let template = ::bees::endpoint_def::EndpointTemplate {
                     record_name: Self::record_name(),
                     name: Self::name(),
                     path: ::bees::utils::FormatString::new(&Self::path()),
@@ -67,7 +67,7 @@ pub fn endpoint_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2:
                     capabilities: Self::capabilities(),
                 };
 
-                let mut builder = ::bees::endpoint::Endpoint::builder_template(template);
+                let mut builder = ::bees::endpoint_def::Endpoint::builder_template(template);
 
                 #(
                     builder.push_endpoint_output(#processors);
@@ -76,7 +76,7 @@ pub fn endpoint_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2:
                 builder
             }
 
-            pub fn endpoint() -> ::bees::endpoint::Endpoint {
+            pub fn endpoint() -> ::bees::endpoint_def::Endpoint {
                 Self::endpoint_builder().build()
             }
         }
@@ -94,7 +94,7 @@ pub fn endpoint_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2:
                         .get_record(#record_name)
                         .unwrap_or_else(|| panic!("derive(Endpoint): couldn't find Record `{}`, needed by Endpoint `{}`", {#record_name}, {#name}));
 
-                    let info = <::bees::record::RecordInfo as ::core::convert::From<::bees::record::Record>>::from(record.clone());
+                    let info = <::bees::record_def::RecordInfo as ::core::convert::From<::bees::record_def::Record>>::from(record.clone());
                     
                     // existence of the record was checked earlier
                     let endpoint = unsafe {

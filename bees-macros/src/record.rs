@@ -49,8 +49,8 @@ pub fn record_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::T
                 ])
             }
 
-            pub fn record() -> ::bees::record::Record {
-                ::bees::record::Record::new(
+            pub fn record() -> ::bees::record_def::Record {
+                ::bees::record_def::Record::new(
                     Self::record_name(),
                     Self::base_url(),
                     Self::shared_capabilities(),

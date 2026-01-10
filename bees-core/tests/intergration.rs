@@ -1,19 +1,31 @@
+#[cfg(feature = "async-trait")]
+use async_trait::async_trait;
 use bees_core::{
-    capability::Capability,
-    handler_helper,
-    net::{client::Handler, request::RequestBuilder},
-    prelude::*,
-    request_decorator::{
+    capability::{Capability}, handler_helper, net::{client::Handler, request::RequestBuilder}, prelude::*, record, request_decorator::{
         Decorate, RequestDecorator, multiple_decorators::MultipleDecorators, retries::Retries,
-    },
+    }, utils::Error
 };
-use std::{collections::HashMap, time::Duration};
+use std::{time::Duration};
+
+#[cfg(not(feature = "async-trait"))]
+use bees_core::capability::CapabilityOutput;
 
 pub struct DummyCap;
 
+#[cfg(not(feature = "async-trait"))]
 impl Capability for DummyCap {
-    fn apply(&self, request: RequestBuilder) -> RequestBuilder {
-        request.header("hello", "world")
+    fn apply<'a>(&'a self, request: RequestBuilder) -> CapabilityOutput<'a> {
+        CapabilityOutput::new(async move {
+            Ok(request.header("hello", "world"))
+        })
+    }
+}
+
+#[cfg(feature = "async-trait")]
+#[async_trait]
+impl Capability for DummyCap {
+    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, Error> {
+        Ok(request.header("hello", "world"))
     }
 }
 
@@ -56,7 +68,7 @@ pub fn make_endpoint_simple() {
     bees_core::init_default_if_needed();
 
     record!("make_endpoint_simple_record" => "https://my.api.com/api/");
-    endpoint!("make_endpoint_simple_record" => new "make_endpoint_simple", "ednpointpath", HttpVerb::GET, async |x| x.text().await);
+    endpoint!("make_endpoint_simple_record" => new "make_endpoint_simple", "endpoint/path", HttpVerb::GET, async |x| x.text().await);
 }
 
 struct DummyDecorator1;
@@ -90,16 +102,14 @@ pub fn decorators() {
     record!("decorators_record" => "https://my.api.com/api/");
     endpoint!("decorators_record" => new "decorators_endpoint", "endpoint/path", HttpVerb::GET, no_op_processor);
 
-    let multiple_decs: MultipleDecorators<_, reqwest::Error> =
+    let multiple_decs: MultipleDecorators<_, Error> =
         MultipleDecorators::new(Retries::new(3, Duration::from_millis(200))).push(DummyDecorator1);
 
-    let hashmap = HashMap::new();
     let query_vals = vec![];
 
     let endpoint_runner = client
         .run_endpoint(
             endpoint!("decorators_record" => "decorators_endpoint"),
-            &hashmap,
             &query_vals,
         )
         .decorate(&multiple_decs);

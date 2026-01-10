@@ -1,19 +1,29 @@
 use std::sync::LazyLock;
 
-use tokio::sync::RwLock;
+use std::sync::RwLock;
 
 use super::Context;
 
-pub(crate) static PRE_CONTEXT: LazyLock<RwLock<PreContext>> = LazyLock::new(|| RwLock::new(PreContext::new()));
+pub(crate) static PRE_CONTEXT: LazyLock<RwLock<PreContext>> =
+    LazyLock::new(|| RwLock::new(PreContext::new()));
 
 /// # SAFETY
-/// this will do nothing if not called before 
+/// this will do nothing if not called before
 /// initializing the Context.
-pub unsafe fn push_pre_context<F>(value: F) 
+pub unsafe fn push_pre_context<F>(value: F)
 where
     ContextMod: From<F>,
 {
-    PRE_CONTEXT.blocking_write().0.push(value.into());
+    PRE_CONTEXT.write().unwrap().0.push(value.into());
+}
+
+#[macro_export]
+macro_rules! init_pre_context {
+    ($($expr:expr),*) => {
+        unsafe {
+            $($crate::context::pre_context::push_pre_context($expr);)*
+        }
+    };
 }
 
 pub struct PreContext(pub(crate) Vec<ContextMod>);
@@ -38,11 +48,8 @@ pub struct ContextMod {
 }
 
 impl ContextMod {
-    pub fn new(priority: ContextModPriority, func: ContextModFunc ) -> Self {
-        Self {
-            priority,
-            func,
-        }
+    pub fn new(priority: ContextModPriority, func: ContextModFunc) -> Self {
+        Self { priority, func }
     }
 }
 

@@ -6,12 +6,12 @@ use std::sync::LazyLock;
 
 use context::{Context, CONTEXT};
 use pre_context::PRE_CONTEXT;
-use tokio::sync::RwLock;
+use std::sync::RwLock;
 
 use crate::context::pre_context::PreContext;
 
 unsafe fn init_pre_context(lock: &mut Context) {
-    let pre_context = &mut PRE_CONTEXT.blocking_write().0;
+    let pre_context = &mut PRE_CONTEXT.write().unwrap().0;
             
     pre_context.sort_unstable_by(|a, b| a.priority.number().cmp(&b.priority.number()));
     pre_context.iter()

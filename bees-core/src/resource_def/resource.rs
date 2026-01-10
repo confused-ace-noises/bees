@@ -1,8 +1,9 @@
 #![allow(unused_parens)]
 use std::{borrow::Borrow, fmt::{Debug, Display}, hash::Hash, ops::{Deref, DerefMut}, sync::Arc};
-use async_trait::async_trait;
 use dashmap::DashSet;
 
+#[cfg(not(feature = "async-trait"))]
+use std::pin::Pin;
 
 /// # Resource
 /// `Resource` represents a commonly needed piece of data, like
@@ -16,8 +17,7 @@ use dashmap::DashSet;
 /// # Usage
 /// 
 /// ```
-/// # use async_trait::async_trait;
-/// # use bees::core::resource::Resource;
+/// # use bees::resource_def::resource::{Resource, ResourceOutput};
 /// # use bees::net::client::Client;
 /// # use std::fmt::Display;
 /// 
@@ -34,6 +34,43 @@ use dashmap::DashSet;
 ///     } 
 /// }
 /// 
+/// impl Resource for Cookie {
+///     // calling ident should be cheap
+///     fn ident(&self) -> &str {
+///         self.cookie_name.as_str()
+///     }
+///     
+///     // calling data can be expensive
+///     fn data<'a>(&'a self) -> ResourceOutput<'a> {
+///         ResourceOutput::new(
+///             async move {
+///                 self.update_cookie().await;
+///                 Box::new(self.cookie_string.clone()) as Box<dyn Display>
+///             }
+///         )
+///     }
+/// }
+/// ```
+/// 
+/// Or, if using the `async-trait` feature: 
+/// 
+/// ```no_run
+/// # use bees::resource_def::resource::{Resource, ResourceOutput};
+/// # use bees::net::client::Client;
+/// # use std::fmt::Display;
+/// 
+/// # #[derive(Debug)]
+/// #  pub struct Cookie {
+/// #    cookie_name: String,
+/// #    cookie_string: String,
+/// # }
+/// 
+/// # impl Cookie {
+/// #    // note: use interior mutability if needed
+/// #    pub async fn update_cookie(&self) {
+/// #        // expensive possibly async updating logic here...
+/// #    } 
+/// # }
 /// #[async_trait]
 /// impl Resource for Cookie {
 ///     // calling ident should be cheap
@@ -48,10 +85,35 @@ use dashmap::DashSet;
 ///     }
 /// }
 /// ```
-#[async_trait]
+#[cfg(not(feature = "async-trait"))]
+pub trait Resource: Send + Sync + Debug {
+    fn ident(&self) -> &str;
+    fn data<'a>(&'a self) -> ResourceOutput<'a>;
+}
+
+#[cfg(feature = "async-trait")]
+#[async_trait::async_trait]
 pub trait Resource: Send + Sync + Debug {
     fn ident(&self) -> &str;
     async fn data(&self) -> Box<dyn Display>;
+}
+
+#[cfg(not(feature = "async-trait"))]
+pub struct ResourceOutput<'a>(Pin<Box<dyn Future<Output = Box<dyn Display>> + Send + 'a>>);
+#[cfg(not(feature = "async-trait"))]
+impl<'a> ResourceOutput<'a> {
+    pub fn new(fut: impl Future<Output = Box<dyn Display>> + Send + 'a) -> Self {
+        Self(Box::pin(fut))
+    }
+}
+
+#[cfg(not(feature = "async-trait"))]
+impl<'a> Future for ResourceOutput<'a> {
+    type Output = Box<dyn Display>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        self.get_mut().0.as_mut().poll(cx)
+    }
 }
 
 impl PartialEq for (dyn Resource + 'static) {
@@ -111,7 +173,19 @@ impl Clone for DynResource {
     }
 }
 
-#[async_trait]
+#[cfg(not(feature = "async-trait"))]
+impl Resource for DynResource {
+    fn ident(&self) -> &str {
+        self.0.ident()
+    }
+
+    fn data<'a>(&'a self) -> ResourceOutput<'a> {
+        ResourceOutput::new(async move {Box::new(self.0.data().await) as Box<dyn Display>})
+    }
+}
+
+#[cfg(feature = "async-trait")]
+#[async_trait::async_trait]
 impl Resource for DynResource {
     fn ident(&self) -> &str {
         self.0.ident()

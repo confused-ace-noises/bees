@@ -3,7 +3,7 @@ use crate::utils::format_string::FormatString;
 use crate::{
     capability::Capability,
     net::client::HttpVerb,
-    record::{Record, RecordInfo},
+    record_def::{Record, RecordInfo},
     utils::format_string::FormattableStringPart,
 };
 use core::{fmt, hash};
@@ -12,7 +12,6 @@ use reqwest::Response;
 use std::{
     any::{Any, TypeId},
     borrow::Borrow,
-    collections::HashMap,
     fmt::Debug,
     pin::Pin,
     sync::Arc,
@@ -113,10 +112,9 @@ impl Endpoint {
 
     pub async fn full_url(
         &self,
-        format_values: impl Borrow<HashMap<String, String>>,
         query_params: &[(String, Option<String>)],
     ) -> String {
-        self.0.full_url(format_values, query_params).await
+        self.0.full_url(query_params).await
     }
 
     pub fn http_verb(&self) -> &HttpVerb {
@@ -161,7 +159,7 @@ impl Endpoint {
         &self,
         resp: Response,
     ) -> T {
-        self.0.endpoint_outputs.run::<T>(resp).await
+        self.0.endpoint_processors.run::<T>(resp).await
     }
 }
 
@@ -369,7 +367,7 @@ pub(crate) struct InnerEndpoint {
     pub(crate) http_verb: HttpVerb,
     pub(crate) capabilities: Arc<[Box<dyn Capability>]>, // only endpoint caps
     pub(crate) record_info: RecordInfo,
-    pub(crate) endpoint_outputs: EndpointProcessors,
+    pub(crate) endpoint_processors: EndpointProcessors,
 }
 
 impl InnerEndpoint {
@@ -392,8 +390,7 @@ impl InnerEndpoint {
             }
 
             Some(
-                FormattableStringPart::HashMapReplace(_)
-                | FormattableStringPart::ResourceReplace(_),
+                FormattableStringPart::ResourceReplace(_),
             )
             | None => {
                 vec.insert(0, FormattableStringPart::Raw(String::from('/')));
@@ -406,7 +403,7 @@ impl InnerEndpoint {
             path,
             http_verb,
             capabilities,
-            endpoint_outputs,
+            endpoint_processors: endpoint_outputs,
         }
     }
 
@@ -433,11 +430,9 @@ impl InnerEndpoint {
 
     pub(crate) async fn full_url(
         &self,
-        format_values: impl Borrow<HashMap<String, String>>,
-        // clippy said to turn this into a [] from a Vec, need to consider if it's actually ergonomic
         query_params: &[(String, Option<String>)],
     ) -> String {
-        let mut string = format!("{}{}", self.record_info.constant_url(), self.path.to_formatted_now(format_values).await.expect("TODO: make a decent error system; format values should include all values to be formatted"));
+        let mut string = format!("{}{}", self.record_info.constant_url(), self.path.to_formatted_now().await.expect("TODO: make a decent error system; format values should include all values to be formatted"));
 
         if !query_params.is_empty() {
             // TODO: check if this actually works

@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
-use crate::resource::ResourceManager;
-use crate::record::RecordManager;
+use crate::resource_def::ResourceManager;
+use crate::record_def::RecordManager;
 
 pub(crate) static CONTEXT: OnceLock<Context> = OnceLock::new();
 

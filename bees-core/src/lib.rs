@@ -6,10 +6,10 @@ use crate::{
 };
 
 pub mod context;
-pub mod endpoint;
+pub mod endpoint_def;
 pub mod net;
-pub mod record;
-pub mod resource;
+pub mod record_def;
+pub mod resource_def;
 pub mod utils;
 pub mod capability;
 pub mod request_decorator;
@@ -37,12 +37,12 @@ pub mod prelude {
     pub use crate::net::client::{Client, EndpointRunner, HttpVerb};
     pub use crate::net::request::{Body, Request};
 
-    pub use crate::endpoint::{Endpoint, no_op_processor};
-    pub use crate::record::Record;
+    pub use crate::endpoint_def::{Endpoint, no_op_processor};
+    pub use crate::record_def::Record;
     
-    pub use crate::resource::{Resource, resource_utils::static_res::StaticResource};
+    pub use crate::resource_def::{Resource, resource_utils::static_res::StaticResource};
 
-    pub use crate::{endpoint, init, record, resource};
+    pub use crate::{endpoint, init, record_def, resource};
 }
 
 pub mod re_exports {

@@ -24,7 +24,6 @@ impl Retries {
 
     fn backoff_duration(&self, attempt: usize) -> Duration {
         let exp = (2u64.pow(attempt as u32 - 1)) as f64;
-        // let jitter = fastrand::u64(0..50);
         let secs = self.base_delay.as_secs_f64() * exp;
         Duration::from_secs_f64(secs)
     }
@@ -61,7 +60,7 @@ impl<E: Send> RequestDecorator<E, E> for Retries {
                         }
                     }
                 }
-                Err(last_err.unwrap())
+                Err(last_err.unwrap()) // this cannot fail
             }
         )
     }
