@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "bees", 
+    "bees-macros"
+]
+resolver = "3"
