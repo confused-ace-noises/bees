@@ -1,16 +1,18 @@
-use thiserror::Error;
+use derive_more::{Display, Error, From};
 
 use crate::net::net_error::NetError;
 use std::error::Error as StdError;
 
-#[derive(Error, Debug)]
+#[derive(Debug, Display, Error, From)]
+#[display("`bees::Error`: {_variant}")]
 pub enum Error {
-    #[error(transparent)]
-    NetError(#[from] NetError),
-
-    #[error("No resource with name \"{0}\" was found.")]
+    NetError(#[error(source)] NetError),
+    
+    #[from(skip)]
+    #[error(ignore)]
+    #[display("No Resource with the specified name `{_0}` was found")]
     NoResFound(String),
 
-    #[error("capability error: {0}")]
-    CapabilityError(Box<dyn StdError>),
+    #[display("A Capability threw an error: {_0}")]
+    CapabilityError(#[error(source)] Box<dyn StdError>),
 }

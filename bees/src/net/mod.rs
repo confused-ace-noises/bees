@@ -1,18 +1,17 @@
-use std::sync::{LazyLock, OnceLock};
-use async_rate_limiter::RateLimiter;
-
 // use crate::context::context;
 pub mod client;
 pub mod request;
 pub mod net_error;
+pub mod bodies;
+
 pub use client::*;
 pub use request::*;
 
-static RATE_LIMITER_DURATION: OnceLock<RateLimiter> = OnceLock::new();
+// static RATE_LIMITER_DURATION: OnceLock<RateLimiter> = OnceLock::new();
 
-pub(crate) fn get_rate_limiter() -> &'static RateLimiter {
-    RATE_LIMITER_DURATION.get().expect("this shouldn't happen. did you remember to init bees (`bees::init()`)?")
-}
+// pub(crate) fn get_rate_limiter() -> &'static RateLimiter {
+//     RATE_LIMITER_DURATION.get().expect("this shouldn't happen. did you remember to init bees (`bees::init()`)?")
+// }
 
 // TEMP: move over to net
 // static CLIENT: LazyLock<Client> = LazyLock::new(|| Client::new(reqwest::Client::new()));

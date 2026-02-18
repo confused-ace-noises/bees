@@ -1,6 +1,4 @@
-use std::sync::LazyLock;
-
-use crate::{net::{Client, Request}, utils::error::Error};
+use crate::{net::Request, utils::error::Error};
 
 
 // ######## TRAITS ########
@@ -37,17 +35,7 @@ impl<H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W> for H {
 
 // ######## BASE_HANDLER ########
 #[derive(Debug, Clone)]
-pub struct BaseHandler {
-    client: Client,
-}
-
-impl BaseHandler {
-    pub fn new(client: Client) -> Self {
-        Self {
-            client
-        }
-    }
-}
+pub struct BaseHandler;
 
 // impl Default for BaseHandler {
 //     fn default() -> Self {
@@ -59,7 +47,7 @@ impl Handler for BaseHandler {
     type Error = Error;
 
     async fn execute(&self, req: Request) -> Result<reqwest::Response, Error> {
-        self.client.execute(req).await
+        req.client.execute_reqwest_req(req.inner).await
     }
 }
 
@@ -74,6 +62,8 @@ pub enum RetriesError<E> {
 
 impl<H: Handler, const N: usize> Retries<H, N> {
     pub fn new(inner: H) -> Self {
+        const { assert!(N > 0, "`N` in Retries<H, N> must be greater than 0"); };
+
         Self { inner }
     }
 }

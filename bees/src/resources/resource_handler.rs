@@ -1,6 +1,7 @@
 use std::{ops::{Deref, DerefMut}, sync::Arc};
 
-use dashmap::DashSet;
+use dashmap::{DashSet, setref::one::Ref};
+
 use super::{resource::Resource, dyn_resource::DynResource};
 
 #[derive(Debug, Default)]
@@ -19,6 +20,11 @@ impl ResourceManager {
     #[inline]
     pub fn add_resource<T: Resource + 'static>(&self, resource: T) -> bool {
         self.0.insert(DynResource::from_res(resource))
+    }
+
+    #[inline]
+    pub fn get_resource<T: AsRef<str>>(&self, ident: T) -> Option<Ref<'_, DynResource>>{
+        self.get(ident.as_ref())
     }
 
     // #[inline]

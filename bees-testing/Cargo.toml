@@ -1,0 +1,14 @@
+[package]
+name = "bees-testing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bees = { path = "../bees" }
+url = "*"
+reqwest = "*"
+async-rate-limiter = "1.1.0"
+tokio = { version = "*", features = ["full"] }
+
+[profile.release]
+opt-level = 3

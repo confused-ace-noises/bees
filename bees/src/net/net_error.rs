@@ -1,11 +1,8 @@
-use thiserror::Error;
+use derive_more::{Display, Error, From};
 
-
-#[derive(Debug, Error)]
+#[derive(Debug, Display, Error, From)]
 pub enum NetError {
-    #[error(transparent)]
-    ReqwestError(#[from] reqwest::Error),
+    ReqwestError(#[error(source)] reqwest::Error),
 
-    #[error(transparent)]
-    NotAValidUrl(#[from] url::ParseError),
+    NotAValidUrl(#[error(source)] url::ParseError),
 }

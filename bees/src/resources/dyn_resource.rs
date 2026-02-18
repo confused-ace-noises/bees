@@ -1,4 +1,5 @@
-use crate::ResourceOutput;
+#[cfg(not(feature = "async-trait"))]
+use super::resource::ResourceOutput;
 
 use super::resource::Resource;
 use std::fmt::Display;
@@ -45,7 +46,7 @@ impl Clone for DynResource {
     }
 }
 
-// #[cfg(not(feature = "async-trait"))]
+#[cfg(not(feature = "async-trait"))]
 impl Resource for DynResource {
     fn ident(&self) -> &str {
         self.0.ident()
@@ -53,6 +54,18 @@ impl Resource for DynResource {
 
     fn data<'a>(&'a self) -> ResourceOutput<'a> {
         ResourceOutput::new(async move {Box::new(self.0.data().await) as Box<dyn Display>})
+    }
+}
+
+#[cfg(feature = "async-trait")]
+#[async_trait::async_trait]
+impl Resource for DynResource {
+    fn ident(&self) -> &str {
+        self.0.ident()
+    }
+
+    async fn data(&self) -> Box<dyn Display> {
+        Box::new(self.0.data().await)
     }
 }
 
@@ -75,3 +88,9 @@ impl Borrow<str> for DynResource {
         self.ident()
     }
 }
+
+// impl Borrow<String> for DynResource {
+//     fn borrow(&self) -> &String {
+//         self.0.ident().to_string()
+//     }
+// }

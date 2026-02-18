@@ -1,6 +1,13 @@
 [workspace]
 members = [
     "bees", 
-    "bees-macros"
+    "bees-macros",
+    "bees-testing"
 ]
 resolver = "3"
+
+[profile.dev]
+debug = 2
+
+[profile.release]
+opt-level = 3

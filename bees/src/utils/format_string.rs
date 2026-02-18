@@ -83,33 +83,31 @@ impl FormatString {
         Self { parts }
     }
 
-    pub fn to_formatted_now(&self) -> impl Future<Output = Result<String, Error>> + Send {
-        async move {
-            let mut result = String::new();
-            
+    pub async fn to_formatted_now(&self) -> Result<String, Error> {
+        let mut result = String::new();
+        
 
-            for part in self.parts.iter() {
-                match part {
-                    FormattableStringPart::Raw(raw) => result.push_str(raw),
-                    FormattableStringPart::ResourceReplace(resource_replace) => {
-                        // let resource = resource!(option resource_replace);
-                        let binding = resource_manager()
-                            .get(resource_replace.as_str())
-                            .ok_or(Error::NoResFound(resource_replace.clone()))?;
-                        
-                        let data = binding.data();
+        for part in self.parts.iter() {
+            match part {
+                FormattableStringPart::Raw(raw) => result.push_str(raw),
+                FormattableStringPart::ResourceReplace(resource_replace) => {
+                    // let resource = resource!(option resource_replace);
+                    let binding = resource_manager()
+                        .get(resource_replace.as_str())
+                        .ok_or(Error::NoResFound(resource_replace.clone()))?;
+                    
+                    let data = binding.data();
 
-                        let data = data.await;
-                        
-                        result.push_str(&data.to_string());
-                    },
-                }
+                    let data = data.await;
+                    
+                    result.push_str(&data.to_string());
+                },
             }
-            
-            print!("{result}");
-
-            Ok(result)
         }
+        
+        print!("{result}");
+
+        Ok(result)
     }
 
     #[allow(unused)]

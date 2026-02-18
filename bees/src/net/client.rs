@@ -1,34 +1,42 @@
-use crate::{endpoint::{EndpointExt, EndpointInfo, Processor}, handler::BaseHandler, net::{get_rate_limiter, net_error::NetError}};
-use async_rate_limiter::RateLimiter;
-use reqwest::{
-    Client as ReqClient, Method, Response, Url
+use crate::{
+    endpoint::{EndpointExt, EndpointInfo, EndpointProcessor, Process},
+    handler::{Handler, HandlerWrapper, WrapDecorate},
+    net::{bodies::Body, net_error::NetError}
 };
+use derive_more::{Display, Error, From};
+use async_rate_limiter::RateLimiter;
+use reqwest::{Client as ReqClient, Method, Response};
 use std::{
-    any::Any, borrow::Borrow, error::Error as StdError, fmt::{self, Debug}, pin::Pin, sync::Arc
+    error::Error as StdError,
+    fmt::{self, Debug},
+    sync::Arc,
 };
 
-use super::request::{Request, RequestBuilder, Body, RequestRunner};
+use super::request::{Request, RequestBuilder};
 // use super::net_error::NetError as Error;
 use crate::utils::error::Error;
 
 #[derive(Clone)]
 pub struct Client {
     inner: Arc<ReqClient>,
-    rate_limiter: &'static RateLimiter,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl fmt::Debug for Client {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Client").field("inner", &self.inner).field("rate_limiter", &"async_rate_limiter internals").finish()
+        f.debug_struct("Client")
+            .field("inner", &self.inner)
+            .field("rate_limiter", &"async_rate_limiter internals")
+            .finish()
     }
 }
 
 impl Client {
-    pub fn new(reqwest_client: ReqClient) -> Self {
-        Self::__new(reqwest_client, get_rate_limiter())
+    pub fn new(reqwest_client: ReqClient, rate_limiter: RateLimiter) -> Self {
+        Self::__new(reqwest_client, Arc::new(rate_limiter))
     }
 
-    pub(crate) fn _new() -> Self {
+    pub(crate) fn _new(rate_limiter: Arc<RateLimiter>) -> Self {
         Self::__new(
             // ReqClient::builder()
             //     .proxy(Proxy::http("http://127.0.0.1:8080/").unwrap())
@@ -36,26 +44,19 @@ impl Client {
             //     .build()
             //     .unwrap(),
             ReqClient::new(),
-            get_rate_limiter(),
+            rate_limiter,
         )
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn new_custom_rate_limiter(rate_limiter: &'static RateLimiter) -> Self {
-        Self::__new(ReqClient::new(), rate_limiter)
-    }
-
-    pub(crate) fn __new(client: ReqClient, rate_limiter: &'static RateLimiter) -> Self {
+    pub(crate) fn __new(client: ReqClient, rate_limiter: Arc<RateLimiter>) -> Self {
         Self {
             inner: Arc::new(client),
             rate_limiter,
         }
     }
 
-    pub async fn reqwest_direct<Fut, E, F>(
-        &self,
-        f: F,
-    ) -> Result<Response, E>
+    // --------- DIRECT ---------
+    pub async fn reqwest_direct<Fut, E, F>(&self, f: F) -> Result<Response, E>
     where
         F: FnOnce(Arc<ReqClient>) -> Result<Fut, E>,
         Fut: Future<Output = Result<Response, E>>,
@@ -65,10 +66,10 @@ impl Client {
         f(self.inner.clone())?.await
     }
 
-    pub fn request(&self, method: Method, url: impl reqwest::IntoUrl) -> RequestBuilder {
+    pub fn get_raw_request_builder(&self, method: Method, url: impl reqwest::IntoUrl) -> RequestBuilder {
         RequestBuilder {
             inner: self.inner.request(method, url),
-            base_handler: self.base_handler(),
+            client: self.clone(),
         }
     }
 
@@ -81,20 +82,24 @@ impl Client {
         Ok(self.inner.execute(request).await.map_err(NetError::from)?)
     }
 
-    pub async fn execute(&self, request: Request) -> Result<Response, Error> {
+    pub async fn execute_request(&self, request: Request) -> Result<Response, Error> {
         self.rate_limiter.acquire().await;
-        Ok(self.inner.execute(request.inner).await.map_err(NetError::ReqwestError)?)
+        Ok(self
+            .inner
+            .execute(request.inner)
+            .await
+            .map_err(NetError::ReqwestError)?)
     }
 
-    pub async fn build_req_builder<E: EndpointInfo>(
+    // --------- ENDPOINT ---------
+    pub async fn request_builder<E: EndpointInfo>(
         &self,
-        mut call_context: E::CallContext,
-    ) -> Result<RequestBuilder, Error> {    
-        // TODO: fix errors; remove .unwrap()
-        let url = E::full_url(&mut call_context).await?;
-        let verb = E::http_verb(&mut call_context);
-        
-        let request = self.request(verb.as_method(), url);
+        call_context: &mut E::CallContext,
+    ) -> Result<RequestBuilder, Error> {
+        let url = E::full_url(call_context).await?;
+        let verb = E::http_verb(call_context).await;
+
+        let request = self.get_raw_request_builder(verb.as_method(), url);
         let mut request = match verb {
             HttpVerb::GET | HttpVerb::DELETE(Option::None) | HttpVerb::OPTIONS | HttpVerb::HEAD => {
                 request
@@ -106,9 +111,10 @@ impl Client {
             | HttpVerb::DELETE(Some(body)) => body.add_body(request).await?,
         };
 
-        let endpoint_caps = E::caps(&mut call_context);
+        let endpoint_caps = E::caps(call_context);
         let record_caps = E::record_capabilities();
-        let capabilities = endpoint_caps.iter().chain(record_caps.iter());
+
+        let capabilities = record_caps.iter().chain(endpoint_caps.iter());
 
         for capability in capabilities {
             request = capability.apply(request).await?
@@ -117,116 +123,136 @@ impl Client {
         Ok(request)
     }
 
-    pub async fn build_req<E>(
+    pub async fn get_request<E>(&self, call_context: &mut E::CallContext) -> Result<Request, Error>
+    where
+        E: EndpointInfo,
+    {
+        self.request_builder::<E>(call_context)
+            .await
+            .and_then(|rb| rb.build().map_err(Error::from))
+    }
+
+    // --------- RUN HELPERS ---------
+    pub fn run_endpoint<E: EndpointInfo>(
         &self,
         call_context: E::CallContext,
-    ) -> Result<Request, Error> 
-    where 
-        E: EndpointInfo
-    {
-        self
-            .build_req_builder::<E>(call_context)
-            .await
-            .map(|rb| rb.build().map_err(|e| Error::from(NetError::from(e))))
-            .flatten()
+    ) -> EndpointRunner<E, E::EndpointHandler> {
+        EndpointRunner::new(self.clone(), call_context)
     }
 
-    pub(crate) fn base_handler(&self) -> BaseHandler {
-        BaseHandler::new(self.clone())
-    }
- 
-    // pub fn run_endpoint<'a, 'b, E>(
-    //     &'a self,
-    //     endpoint: Endpoint,
-    //     query_values: &'b Vec<(String, Option<String>)>,
-    // ) -> EndpointRunner<'a, Error>
-    // where
-    //     'b: 'a,
-    // {
-    //     let handler = self.endpoint_handler();
-    //     EndpointRunner {
-    //         client: self.clone(),
-    //         handler,
-    //         endpoint,
-    //         query_values,
-    //     }
-    // }
-
-    // pub fn run_request<'a, E: StdError + Send + 'a>(
-    //     &'a self,
-    //     request: Request,
-    // ) -> RequestRunner<'a, Error> {
-    //     let handler = self.endpoint_handler();
-    //     RequestRunner {
-    //         client: self.clone(),
-    //         handler,
-    //         request,
-    //     }
-    // }
-}
-
-// pub struct EndpointRunner<'a, Endpoint: EndpointInfo, E: Send> {
-//     client: Client,
-//     // handler: Handler<'a, E>,
-//     endpoint: Endpoint,
-//     query_values: &'a Vec<(String, Option<String>)>,
-// }
-
-/*
-impl<'a, E: Send> Debug for EndpointRunner<'a, E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EndpointRunner").field("client", &self.client).field("handler", &"Handler<'a, E> = Arc<dyn Fn(Request) -> Pin<Box<dyn Future<Output = Result<Response, E>> + Send + 'a>> + Send + Sync + 'a>;").field("endpoint", &self.endpoint).field("query_values", &self.query_values).finish()
+    pub fn run_endpoint_ref<'a, E: EndpointInfo>(
+        &self,
+        call_context: &'a mut E::CallContext
+    ) -> EndpointRunnerRef<'a, E, E::EndpointHandler> {
+        EndpointRunnerRef::new(self.clone(), call_context)
     }
 }
 
-impl<'a, E: Send> Sealed for EndpointRunner<'a, E>{}
+#[derive(Debug)]
+pub struct EndpointRunner<E: EndpointInfo, H: Handler> {
+    client: Client,
+    handler: H,
+    call_context: E::CallContext,
+}
 
-impl<'a, E, G> Decorate<'a, E, G> for EndpointRunner<'a, E> 
-where
-    E: Send + 'a,
-    G: Send + 'a,
+impl<E: EndpointInfo, H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W>
+    for EndpointRunner<E, H>
 {
-    type Output = EndpointRunner<'a, G>;
+    type Output = EndpointRunner<E, W::Output>;
 
-    fn decorate<T: RequestDecorator<E, G> + 'a + ?Sized>(self, decorator: &'a T) -> Self::Output
-    {
-        let new_handler = self.handler.decorate(decorator);
+    fn wrap(self, wrapper: W) -> Self::Output {
         EndpointRunner {
             client: self.client,
-            handler: new_handler,
-            endpoint: self.endpoint,
-            query_values: self.query_values,
+            handler: self.handler.wrap(wrapper),
+            call_context: self.call_context,
         }
     }
 }
 
-impl<'a, E: StdError + Send + 'static> EndpointRunner<'a, E> {
-    pub async fn run_resp(self) -> Result<Result<Response, E>, Error> {
-        let req = self
-            .client
-            .build_req(&self.endpoint, self.query_values)
-            .await?;
+impl<E: EndpointInfo> EndpointRunner<E, E::EndpointHandler> {
+    pub fn new(client: Client, mut call_context: E::CallContext) -> Self {
+        let base_handler = E::endpoint_handler(&mut call_context);
 
-        println!("Running request: {:#?}", req);
-
-        Ok((self.handler)(req).await) 
-    }
-
-    pub async fn run<T: Any + Send + Sync + 'static>(self) -> Result<Result<T, E>, Error> {
-        let req = self
-            .client
-            .build_req(&self.endpoint, self.query_values)
-            .await?;
-
-        println!("Running request: {:#?}", req);
-
-        match (self.handler)(req).await {
-            Ok(resp) => Ok(Ok(self.endpoint.processor::<T>(resp).await)),
-            Err(e) => Ok(Err(e))
+        EndpointRunner {
+            client,
+            handler: base_handler,
+            call_context,
         }
     }
 }
-*/
+
+impl<E: EndpointInfo, H: Handler> EndpointRunner<E, H> {
+    pub async fn run_get_response(&mut self) -> Result<Response, EndpointRunnerError<H>> {
+        self.handler.execute(self.client.get_request::<E>(&mut self.call_context).await?).await.map_err(EndpointRunnerError::HandlerError)
+    }
+    
+    pub async fn run<O>(&mut self) -> Result<O, EndpointRunnerError<H>>
+    where
+        E: EndpointProcessor<O>,
+    {
+        let response = self.run_get_response().await?;
+        let proc_output = <E::Process as Process>::process(response).await;
+
+        Ok(E::refine(proc_output, &mut self.call_context).await)
+    }
+}
+
+pub struct EndpointRunnerRef<'a, E: EndpointInfo, H: Handler> {
+    client: Client,
+    handler: H,
+    call_context: &'a mut E::CallContext,
+}
+
+impl<'a, E: EndpointInfo> EndpointRunnerRef<'a, E, E::EndpointHandler> {
+    pub fn new(client: Client, call_context: &'a mut E::CallContext) -> Self {
+        let base_handler = E::endpoint_handler(call_context);
+
+        EndpointRunnerRef {
+            client,
+            handler: base_handler,
+            call_context,
+        }
+    }
+}
+
+impl<'a, E: EndpointInfo, H: Handler> EndpointRunnerRef<'a, E, H> {
+    pub async fn run_get_response(&mut self) -> Result<Response, EndpointRunnerError<H>> {
+        self.handler.execute(self.client.get_request::<E>(self.call_context).await?).await.map_err(EndpointRunnerError::HandlerError)
+    }
+    
+    pub async fn run<O>(&mut self) -> Result<O, EndpointRunnerError<H>>
+    where
+        E: EndpointProcessor<O>,
+    { 
+        let response = self.run_get_response().await?;
+        let proc_output = <E::Process as Process>::process(response).await;
+
+        Ok(E::refine(proc_output, self.call_context).await)
+    }
+}
+
+impl<'a, E: EndpointInfo, H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W>
+    for EndpointRunnerRef<'a, E, H>
+{
+    type Output = EndpointRunnerRef<'a, E, W::Output>;
+
+    fn wrap(self, wrapper: W) -> Self::Output {
+        EndpointRunnerRef {
+            client: self.client,
+            handler: self.handler.wrap(wrapper),
+            call_context: self.call_context,
+        }
+    }
+}
+
+
+#[derive(Debug, Display, Error, From)]
+pub enum EndpointRunnerError<H: Handler> {
+    FailedToBuildRequest(#[error(source)] Error),
+    
+    #[from(skip)]
+    HandlerError(#[error(source)] H::Error)
+}
 
 #[derive(Debug)]
 pub enum HttpVerb {

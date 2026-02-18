@@ -1,7 +1,7 @@
 use std::{
     future::ready,
     str::FromStr,
-    sync::{Arc, Once, OnceLock},
+    sync::{Arc, OnceLock},
 };
 
 use reqwest::Response;
@@ -11,7 +11,7 @@ use super::net::net_error::NetError;
 use crate::utils::error::Error;
 use crate::{
     capability::Capability,
-    handler::{BaseHandler, Handler},
+    handler::Handler,
     net::HttpVerb,
     record::Record,
     utils::format_string::FormatString,
@@ -20,12 +20,13 @@ use crate::{
 pub trait EndpointInfo {
     type Record: Record;
     type CallContext;
+    type EndpointHandler: Handler;
 
     const PATH: &str;
 
-    fn caps(call: &mut Self::CallContext) -> Arc<[Box<dyn Capability>]>;
-    fn base_handler(base_handler: BaseHandler, call: &mut Self::CallContext) -> impl Handler;
-    fn http_verb(call: &mut Self::CallContext) -> HttpVerb;
+    fn caps(call: &Self::CallContext) -> Arc<[Box<dyn Capability>]>;
+    fn endpoint_handler(call: &mut Self::CallContext) -> Self::EndpointHandler;
+    fn http_verb(call: &mut Self::CallContext) -> impl Future<Output = HttpVerb>;
 
     #[allow(unused_variables)]
     fn modify_url(url: Url, call: &mut Self::CallContext) -> impl Future<Output = Url> {
@@ -62,18 +63,17 @@ impl<E: EndpointInfo> EndpointExt for E {
     }
 }
 
-pub trait Processor<T> {
-    fn process(&mut self, resp: Response) -> impl Future<Output = T>;
+pub trait EndpointProcessor<O>: EndpointInfo {
+    type Process: Process;
+
+    fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &mut Self::CallContext) -> impl Future<Output = O>;
 }
 
-impl<E: EndpointInfo> Processor<Response> for E {
-    async fn process(&mut self, resp: Response) -> Response {
-        resp
-    }
+pub trait Process {
+    type ProcessOutput;
+    
+    fn process(resp: Response) -> impl Future<Output = Self::ProcessOutput>;
 }
-
-pub struct Body(Box<dyn BodyAdder>);
-pub trait BodyAdder: Capability + std::fmt::Debug + Send + Sync {}
 
 #[cfg(test)]
 #[allow(unused)]
@@ -88,22 +88,59 @@ mod test {
         }
     }
 
+    struct NoOpProcessor;
+
+    impl Process for NoOpProcessor {
+        type ProcessOutput = Response;
+    
+        fn process(resp: Response) -> impl Future<Output = Self::ProcessOutput> {
+            ready(resp)
+        }
+    }
+
+    struct IntoTextProcessor;
+
+    impl Process for IntoTextProcessor {
+        type ProcessOutput = String;
+    
+        async fn process(resp: Response) -> Self::ProcessOutput {
+            resp.text().await.unwrap()
+        }
+    }
+
+    impl EndpointProcessor<String> for Test {
+        type Process = NoOpProcessor;
+    
+        async fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &mut Self::CallContext) -> String {
+            proc_output.text().await.unwrap()
+        }
+    }
+
+    impl EndpointProcessor<u8> for Test {
+        type Process = IntoTextProcessor;
+    
+        fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &mut Self::CallContext) -> impl Future<Output = u8> {
+            ready(proc_output.as_bytes()[0])
+        }
+    }
+
     struct Test;
     impl EndpointInfo for Test {
         type Record = TestR;
         type CallContext = UrlContext;
+        type EndpointHandler = Retries<BaseHandler, 3>;
 
         const PATH: &str = "idk";
 
-        fn caps(_: &mut Self::CallContext) -> Arc<[Box<dyn Capability>]> {
+        fn caps(_: &Self::CallContext) -> Arc<[Box<dyn Capability>]> {
             Arc::new([])
         }
 
-        fn base_handler(base_handler: BaseHandler, _: &mut Self::CallContext) -> impl Handler {
-            base_handler.wrap(RetriesWrapper::<3>)
+        fn endpoint_handler(_: &mut Self::CallContext) -> Self::EndpointHandler {
+            BaseHandler.wrap(RetriesWrapper::<3>)
         }
 
-        fn http_verb(_: &mut Self::CallContext) -> HttpVerb {
+        async fn http_verb(_: &mut Self::CallContext) -> HttpVerb {
             HttpVerb::GET
         }
 
@@ -120,9 +157,9 @@ mod test {
             let mut query_pairs = url.query_pairs_mut();
             for (key, maybe_value) in self.0.iter() {
                 if let Some(value) = maybe_value {
-                    query_pairs.append_pair(&key, &value);
+                    query_pairs.append_pair(key, value);
                 } else {
-                    query_pairs.append_key_only(&key);
+                    query_pairs.append_key_only(key);
                 }
             }
         }
