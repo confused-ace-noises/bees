@@ -14,5 +14,5 @@ pub enum Error {
     NoResFound(String),
 
     #[display("A Capability threw an error: {_0}")]
-    CapabilityError(#[error(source)] Box<dyn StdError>),
+    CapabilityError(#[error(source)] Box<dyn StdError + Send>),
 }

@@ -2,6 +2,7 @@ use std::{
     future::ready,
     str::FromStr,
     sync::{Arc, OnceLock},
+    fmt::Debug
 };
 
 use reqwest::Response;
@@ -17,19 +18,19 @@ use crate::{
     utils::format_string::FormatString,
 };
 
-pub trait EndpointInfo {
+pub trait EndpointInfo: Send + Debug {
     type Record: Record;
-    type CallContext;
+    type CallContext: Send + Sync;
     type EndpointHandler: Handler;
 
     const PATH: &str;
 
-    fn caps(call: &Self::CallContext) -> Arc<[Box<dyn Capability>]>;
-    fn endpoint_handler(call: &mut Self::CallContext) -> Self::EndpointHandler;
-    fn http_verb(call: &mut Self::CallContext) -> impl Future<Output = HttpVerb>;
+    fn capabilities(ctx: &Self::CallContext) -> Arc<[Box<dyn Capability>]>;
+    fn endpoint_handler(ctx: &Self::CallContext) -> Self::EndpointHandler;
+    fn http_verb(ctx: &Self::CallContext) -> impl Future<Output = HttpVerb> + Send;
 
     #[allow(unused_variables)]
-    fn modify_url(url: Url, call: &mut Self::CallContext) -> impl Future<Output = Url> {
+    fn modify_url(url: Url, ctx: &Self::CallContext) -> impl Future<Output = Url> + Send {
         ready(url)
     }
 }
@@ -38,8 +39,8 @@ pub trait EndpointExt: EndpointInfo {
     fn parsed_path() -> &'static FormatString;
     fn record_capabilities() -> Arc<[Box<dyn Capability>]>;
     fn full_url(
-        call: &mut <Self as EndpointInfo>::CallContext,
-    ) -> impl Future<Output = Result<Url, Error>>;
+        ctx: &<Self as EndpointInfo>::CallContext,
+    ) -> impl Future<Output = Result<Url, Error>> + Send;
 }
 
 impl<E: EndpointInfo> EndpointExt for E {
@@ -48,12 +49,12 @@ impl<E: EndpointInfo> EndpointExt for E {
         PARSED.get_or_init(|| FormatString::new(E::PATH))
     }
 
-    async fn full_url(call: &mut <Self as EndpointInfo>::CallContext) -> Result<Url, Error> {
+    async fn full_url(ctx: &<Self as EndpointInfo>::CallContext) -> Result<Url, Error> {
         let parsed = Self::parsed_path();
         let formatted = &parsed.to_formatted_now().await?;
         Ok(Self::modify_url(
             Url::from_str(formatted).map_err(NetError::NotAValidUrl)?,
-            call,
+            ctx,
         )
         .await)
     }
@@ -66,20 +67,20 @@ impl<E: EndpointInfo> EndpointExt for E {
 pub trait EndpointProcessor<O>: EndpointInfo {
     type Process: Process;
 
-    fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &mut Self::CallContext) -> impl Future<Output = O>;
+    fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &Self::CallContext) -> impl Future<Output = O> + Send;
 }
 
 pub trait Process {
-    type ProcessOutput;
+    type ProcessOutput: Send;
     
-    fn process(resp: Response) -> impl Future<Output = Self::ProcessOutput>;
+    fn process(resp: Response) -> impl Future<Output = Self::ProcessOutput> + Send;
 }
 
 #[cfg(test)]
 #[allow(unused)]
 mod test {
     use super::*;
-    use crate::handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate};
+    use crate::{handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate}, provided::processors::{NoOpProcess, TextProcess}};
     pub struct TestR;
     impl Record for TestR {
         const SHARED_URL: &str = "https://idk.com/";
@@ -88,42 +89,23 @@ mod test {
         }
     }
 
-    struct NoOpProcessor;
-
-    impl Process for NoOpProcessor {
-        type ProcessOutput = Response;
-    
-        fn process(resp: Response) -> impl Future<Output = Self::ProcessOutput> {
-            ready(resp)
-        }
-    }
-
-    struct IntoTextProcessor;
-
-    impl Process for IntoTextProcessor {
-        type ProcessOutput = String;
-    
-        async fn process(resp: Response) -> Self::ProcessOutput {
-            resp.text().await.unwrap()
-        }
-    }
-
     impl EndpointProcessor<String> for Test {
-        type Process = NoOpProcessor;
+        type Process = NoOpProcess;
     
-        async fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &mut Self::CallContext) -> String {
+        async fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &Self::CallContext) -> String {
             proc_output.text().await.unwrap()
         }
     }
 
     impl EndpointProcessor<u8> for Test {
-        type Process = IntoTextProcessor;
+        type Process = TextProcess;
     
-        fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &mut Self::CallContext) -> impl Future<Output = u8> {
+        fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &Self::CallContext) -> impl Future<Output = u8> {
             ready(proc_output.as_bytes()[0])
         }
     }
 
+    #[derive(Debug)]
     struct Test;
     impl EndpointInfo for Test {
         type Record = TestR;
@@ -132,20 +114,20 @@ mod test {
 
         const PATH: &str = "idk";
 
-        fn caps(_: &Self::CallContext) -> Arc<[Box<dyn Capability>]> {
+        fn capabilities(_: &Self::CallContext) -> Arc<[Box<dyn Capability>]> {
             Arc::new([])
         }
 
-        fn endpoint_handler(_: &mut Self::CallContext) -> Self::EndpointHandler {
+        fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler {
             BaseHandler.wrap(RetriesWrapper::<3>)
         }
 
-        async fn http_verb(_: &mut Self::CallContext) -> HttpVerb {
+        async fn http_verb(_: &Self::CallContext) -> HttpVerb {
             HttpVerb::GET
         }
 
-        async fn modify_url(mut url: Url, call: &mut Self::CallContext) -> Url {
-            call.append_to_url(&mut url);
+        async fn modify_url(mut url: Url, ctx: &Self::CallContext) -> Url {
+            ctx.append_to_url(&mut url);
             url
         }
     }

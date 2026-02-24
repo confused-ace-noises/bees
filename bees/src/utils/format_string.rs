@@ -1,9 +1,9 @@
-use crate::resource_manager;
 use super::error::Error;
+use crate::resource_manager;
 
 #[derive(Debug, Clone)]
 pub struct FormatString {
-    parts: Vec<FormattableStringPart>
+    parts: Vec<FormattableStringPart>,
 }
 
 impl FormatString {
@@ -24,9 +24,9 @@ impl FormatString {
                     } else {
                         parts.push(FormattableStringPart::Raw(raw_sting_buffer));
                         raw_sting_buffer = String::new();
-                        
+
                         let mut part = String::new();
-                        
+
                         'inner: while let Some(c_part) = chars.next() {
                             match c_part {
                                 '>' => {
@@ -45,7 +45,9 @@ impl FormatString {
                                         part.push('<');
                                         continue 'inner;
                                     } else {
-                                        panic!("invalid formattable string in FormatString: lone \'<\' inside formattable section (did you mean \'<<\'?)")
+                                        panic!(
+                                            "invalid formattable string in FormatString: lone \'<\' inside formattable section (did you mean \'<<\'?)"
+                                        )
                                     }
                                 }
 
@@ -55,14 +57,16 @@ impl FormatString {
 
                         parts.push(FormattableStringPart::ResourceReplace(part));
                     }
-                },
+                }
 
                 '>' => {
                     if let Some(&'>') = chars.peek() {
                         let _ = chars.next();
                         raw_sting_buffer.push('>')
                     } else {
-                        panic!("invalid formattable string in FormatString: unpaired \'>\' inside raw section (did you mean \'>>\'?)")
+                        panic!(
+                            "invalid formattable string in FormatString: unpaired \'>\' inside raw section (did you mean \'>>\'?)"
+                        )
                     }
                 }
 
@@ -74,40 +78,39 @@ impl FormatString {
             parts.push(FormattableStringPart::Raw(raw_sting_buffer));
         }
 
-        Self {
-            parts
-        }
+        Self { parts }
     }
 
     pub fn from_parts(parts: Vec<FormattableStringPart>) -> Self {
         Self { parts }
     }
 
-    pub async fn to_formatted_now(&self) -> Result<String, Error> {
-        let mut result = String::new();
-        
+    pub fn to_formatted_now(&self) -> impl Future<Output = Result<String, Error>> + Send {
+        async move {
+            let mut result = String::new();
 
-        for part in self.parts.iter() {
-            match part {
-                FormattableStringPart::Raw(raw) => result.push_str(raw),
-                FormattableStringPart::ResourceReplace(resource_replace) => {
-                    // let resource = resource!(option resource_replace);
-                    let binding = resource_manager()
-                        .get(resource_replace.as_str())
-                        .ok_or(Error::NoResFound(resource_replace.clone()))?;
-                    
-                    let data = binding.data();
+            for part in self.parts.iter() {
+                match part {
+                    FormattableStringPart::Raw(raw) => result.push_str(raw),
+                    FormattableStringPart::ResourceReplace(resource_replace) => {
+                        // let resource = resource!(option resource_replace);
+                        let binding = resource_manager()
+                            .get(resource_replace.as_str())
+                            .ok_or(Error::NoResFound(resource_replace.clone()))?;
 
-                    let data = data.await;
-                    
-                    result.push_str(&data.to_string());
-                },
+                        let data = binding.data();
+
+                        let data = data.await;
+
+                        result.push_str(&data.to_string());
+                    }
+                }
             }
-        }
-        
-        print!("{result}");
 
-        Ok(result)
+            print!("{result}");
+
+            Ok(result)
+        }
     }
 
     #[allow(unused)]

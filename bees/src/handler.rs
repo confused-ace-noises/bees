@@ -1,14 +1,14 @@
 use crate::{net::Request, utils::error::Error};
-
+use std::fmt::Debug;
 
 // ######## TRAITS ########
-pub trait Handler {
-    type Error; 
+pub trait Handler: Debug + Send {
+    type Error: Debug; 
 
     fn execute(
         &self,
         req: Request,
-    ) -> impl Future<Output = Result<reqwest::Response, Self::Error>>;
+    ) -> impl Future<Output = Result<reqwest::Response, Self::Error>> + Send;
 }
 
 pub trait HandlerWrapper<H: Handler> {
@@ -53,8 +53,10 @@ impl Handler for BaseHandler {
 
 
 // ######## RETRIES ########
+#[derive(Debug)]
 pub struct Retries<H: Handler, const N: usize> { inner: H }
 
+#[derive(Debug)]
 pub enum RetriesError<E> {
     InnerError(E),
     CouldNotCloneRequest,
@@ -68,7 +70,7 @@ impl<H: Handler, const N: usize> Retries<H, N> {
     }
 }
 
-impl<E, H: Handler<Error = E>, const N: usize> Handler for Retries<H, N> {
+impl<E: Debug, H: Handler<Error = E> + Sync, const N: usize> Handler for Retries<H, N> {
     type Error = RetriesError<E>;
 
     async fn execute(&self, req: Request) -> Result<reqwest::Response, Self::Error> {
@@ -98,7 +100,7 @@ impl<E, H: Handler<Error = E>, const N: usize> Handler for Retries<H, N> {
 
 pub struct RetriesWrapper<const N: usize>;
 
-impl<H: Handler, const N: usize> HandlerWrapper<H> for RetriesWrapper<N> {
+impl<H: Handler + Sync, const N: usize> HandlerWrapper<H> for RetriesWrapper<N> {
     type Output = Retries<H, N>;
 
     fn wrap_into(&self, from: H) -> Self::Output {

@@ -2,42 +2,36 @@ use std::{future::ready, sync::Arc};
 
 use async_rate_limiter::RateLimiter;
 use bees::{
-    self,
-    capability::Capability,
-    endpoint::{self, EndpointInfo, EndpointProcessor, Process},
-    handler::{BaseHandler, Handler, Retries, RetriesWrapper, WrapDecorate},
-    net::{
+    self, Endpoint, EndpointProcessor, Record, capability::Capability, endpoint::{self, EndpointInfo, EndpointProcessor, Process}, handler::{BaseHandler, Handler, Retries, RetriesWrapper, WrapDecorate}, net::{
         Client, HttpVerb,
         bodies::{Body, TextBody},
-    },
-    record::Record,
+    }, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}, record::Record
 };
-use reqwest::Response;
+use reqwest::{Response, header::HeaderMap};
 use url::Url;
 
 #[tokio::main]
 async fn main() {
-    let mut client = Client::new(reqwest::Client::new(), RateLimiter::new(2));
+    let client = Client::new(reqwest::Client::new(), RateLimiter::new(2));
 
-    let endpoint_runner = client.run_endpoint::<Test>(UrlContext(Vec::new()));
+    let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
 
-    let mut endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
+    let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
 
-    // let x = endpoint_runner_2
-    //     .run::<Result<std::string::String, reqwest::Error>>()
-    //     .await;
+    let x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
+        .run::<String>()
+        .await;
     
 
     println!("{client:?}")
 }
 
-pub struct TestR;
-impl Record for TestR {
-    const SHARED_URL: &str = "https://idk.com/";
-    fn shared_caps() -> Arc<[Box<dyn Capability>]> {
-        Arc::new([])
-    }
-}
+#[derive(Record)]
+#[record(
+    path = "https://idk.com/",
+    capabilities([AddHeaders(Vec::new()), AddHeaderMap(HeaderMap::new())])
+)]
+pub struct TestRecord;
 
 struct NoOpProcessor;
 
@@ -59,53 +53,76 @@ impl Process for IntoTextProcessor {
     }
 }
 
-impl EndpointProcessor<String> for Test {
-    type Process = NoOpProcessor;
+// impl EndpointProcessor<String> for Test {
+//     type Process = NoOpProcessor;
 
-    async fn refine(
-        proc_output: <Self::Process as Process>::ProcessOutput,
-        call_context: &mut Self::CallContext,
-    ) -> String {
-        proc_output.text().await.unwrap()
-    }
-}
+//     async fn refine(
+//         proc_output: <Self::Process as Process>::ProcessOutput,
+//         call_context: &Self::CallContext,
+//     ) -> String {
+//         proc_output.text().await.unwrap()
+//     }
+// }
 
 impl EndpointProcessor<u8> for Test {
     type Process = IntoTextProcessor;
 
     fn refine(
         proc_output: <Self::Process as Process>::ProcessOutput,
-        call_context: &mut Self::CallContext,
+        _: &Self::CallContext,
     ) -> impl Future<Output = u8> {
         ready(proc_output.as_bytes()[0])
     }
 }
 
+async fn url_func(url: Url) -> Url {
+    url
+}
+
+#[derive(Debug, Endpoint)]
+#[endpoint(
+    record = TestRecord,
+    handler(BaseHandler, BaseHandler),
+    http_verb = HttpVerb::GET,
+    path = "idk",
+    modify_url = url_func,
+    processors(NoOpProcessor, IntoTextProcessor)
+)]
+struct Test2;
+
+#[derive(Debug, EndpointProcessor)]
+#[process(NoOpProcessor)]
+#[process(IntoTextProcessor)]
 struct Test;
 impl EndpointInfo for Test {
-    type Record = TestR;
+    type Record = TestRecord;
     type CallContext = UrlContext;
     type EndpointHandler = Retries<BaseHandler, 3>;
 
     const PATH: &str = "idk";
 
-    fn caps(_: &Self::CallContext) -> Arc<[Box<dyn Capability>]> {
+    fn capabilities(_: &Self::CallContext) -> Arc<[Box<dyn Capability>]> {
         Arc::new([])
     }
 
-    fn endpoint_handler(_: &mut Self::CallContext) -> Self::EndpointHandler {
+    fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler {
         BaseHandler.wrap(RetriesWrapper::<3>)
     }
 
-    async fn http_verb(_: &mut Self::CallContext) -> HttpVerb {
+    async fn http_verb(_: &Self::CallContext) -> HttpVerb {
         HttpVerb::GET
     }
 
-    async fn modify_url(mut url: Url, call: &mut Self::CallContext) -> Url {
+    async fn modify_url(mut url: Url, call: &Self::CallContext) -> Url {
         call.append_to_url(&mut url);
         url
     }
 }
+
+struct Thing<T>(T) where T: EndpointProcessor<Response>;
+const _: () = {
+    let t = Thing(Test);
+};
 
 struct UrlContext(Vec<(String, Option<String>)>);
 

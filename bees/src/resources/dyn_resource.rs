@@ -53,7 +53,7 @@ impl Resource for DynResource {
     }
 
     fn data<'a>(&'a self) -> ResourceOutput<'a> {
-        ResourceOutput::new(async move {Box::new(self.0.data().await) as Box<dyn Display>})
+        ResourceOutput::new(async move {Box::new(self.0.data().await) as Box<dyn Display + Send>})
     }
 }
 

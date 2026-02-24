@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bees = { path = "../bees" }
+bees = { path = "../bees", features = ["derive"]}
 url = "*"
 reqwest = "*"
 async-rate-limiter = "1.1.0"

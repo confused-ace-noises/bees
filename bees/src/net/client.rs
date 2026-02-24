@@ -5,6 +5,7 @@ use crate::{
 };
 use derive_more::{Display, Error, From};
 use async_rate_limiter::RateLimiter;
+use futures::{FutureExt, future::join};
 use reqwest::{Client as ReqClient, Method, Response};
 use std::{
     error::Error as StdError,
@@ -94,10 +95,14 @@ impl Client {
     // --------- ENDPOINT ---------
     pub async fn request_builder<E: EndpointInfo>(
         &self,
-        call_context: &mut E::CallContext,
+        call_context: &E::CallContext,
     ) -> Result<RequestBuilder, Error> {
-        let url = E::full_url(call_context).await?;
-        let verb = E::http_verb(call_context).await;
+
+        // determine whether this makes sense, does it give enough of a speed boost to 
+        // justify not guaranteeing order of operations?
+        let (url, verb) = join(E::full_url(call_context), E::http_verb(call_context)).await;
+
+        let url = url?;
 
         let request = self.get_raw_request_builder(verb.as_method(), url);
         let mut request = match verb {
@@ -111,7 +116,7 @@ impl Client {
             | HttpVerb::DELETE(Some(body)) => body.add_body(request).await?,
         };
 
-        let endpoint_caps = E::caps(call_context);
+        let endpoint_caps = E::capabilities(call_context);
         let record_caps = E::record_capabilities();
 
         let capabilities = record_caps.iter().chain(endpoint_caps.iter());
@@ -123,7 +128,7 @@ impl Client {
         Ok(request)
     }
 
-    pub async fn get_request<E>(&self, call_context: &mut E::CallContext) -> Result<Request, Error>
+    pub async fn get_request<E>(&self, call_context: &E::CallContext) -> Result<Request, Error>
     where
         E: EndpointInfo,
     {
@@ -133,14 +138,28 @@ impl Client {
     }
 
     // --------- RUN HELPERS ---------
-    pub fn run_endpoint<E: EndpointInfo>(
+    pub fn run_endpoint_with<E: EndpointInfo>(
         &self,
         call_context: E::CallContext,
     ) -> EndpointRunner<E, E::EndpointHandler> {
         EndpointRunner::new(self.clone(), call_context)
     }
 
-    pub fn run_endpoint_ref<'a, E: EndpointInfo>(
+    pub fn run_endpoint_ref_with<'a, E: EndpointInfo>(
+        &self,
+        call_context: &'a mut E::CallContext
+    ) -> EndpointRunnerRef<'a, E, E::EndpointHandler> {
+        EndpointRunnerRef::new(self.clone(), call_context)
+    }
+    
+    pub fn run_endpoint<E: EndpointInfo<CallContext = ()>>(
+        &self,
+    ) -> EndpointRunner<E, E::EndpointHandler>
+    {
+        EndpointRunner::new(self.clone(), ())
+    }
+
+    pub fn run_endpoint_ref<'a, E: EndpointInfo<CallContext = ()>>(
         &self,
         call_context: &'a mut E::CallContext
     ) -> EndpointRunnerRef<'a, E, E::EndpointHandler> {
@@ -170,8 +189,8 @@ impl<E: EndpointInfo, H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W>
 }
 
 impl<E: EndpointInfo> EndpointRunner<E, E::EndpointHandler> {
-    pub fn new(client: Client, mut call_context: E::CallContext) -> Self {
-        let base_handler = E::endpoint_handler(&mut call_context);
+    pub fn new(client: Client, call_context: E::CallContext) -> Self {
+        let base_handler = E::endpoint_handler(&call_context);
 
         EndpointRunner {
             client,
@@ -182,18 +201,25 @@ impl<E: EndpointInfo> EndpointRunner<E, E::EndpointHandler> {
 }
 
 impl<E: EndpointInfo, H: Handler> EndpointRunner<E, H> {
-    pub async fn run_get_response(&mut self) -> Result<Response, EndpointRunnerError<H>> {
-        self.handler.execute(self.client.get_request::<E>(&mut self.call_context).await?).await.map_err(EndpointRunnerError::HandlerError)
+    pub async fn run_get_response(&self) -> Result<Response, EndpointRunnerError<H>> {
+        self.handler.execute(self.client.get_request::<E>(&self.call_context).await?).await.map_err(EndpointRunnerError::HandlerError)
     }
     
-    pub async fn run<O>(&mut self) -> Result<O, EndpointRunnerError<H>>
+    pub async fn run<O>(&self) -> Result<O, EndpointRunnerError<H>>
     where
         E: EndpointProcessor<O>,
     {
         let response = self.run_get_response().await?;
         let proc_output = <E::Process as Process>::process(response).await;
 
-        Ok(E::refine(proc_output, &mut self.call_context).await)
+        Ok(E::refine(proc_output, &self.call_context).await)
+    }
+
+    pub async fn run_and_get_context<O>(self) -> Result<(O, E::CallContext), EndpointRunnerError<H>>
+    where
+        E: EndpointProcessor<O>,
+    {
+        self.run::<O>().await.map(move |ok| (ok, self.call_context))
     }
 }
 

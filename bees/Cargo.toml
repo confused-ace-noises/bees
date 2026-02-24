@@ -9,6 +9,7 @@ url = "2.5.8"
 
 # tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "time", "sync"] }
 futures = "0.3.31"
+async-lock = "3.4.2"
 
 delegate = "0.13.4"
 serde = { version = "1.0.228", optional = true }
@@ -25,7 +26,7 @@ serde_json = { version = "1.0.145", optional = true }
 # thiserror = "2.0.17"
 derive_more = { version = "2.1.1", features = ["full"] }
 
-bees-macros = { path = "../bees-macros" }
+bees-macros = { path = "../bees-macros", optional = true }
  
 [features]
 reqwest-json = ["reqwest/json", "dep:serde", "dep:serde_json"]
@@ -33,7 +34,7 @@ reqwest-multipart = ["reqwest/multipart"]
 reqwest-query = ["reqwest/query", "dep:serde"]
 reqwest-form = ["reqwest/form", "dep:serde"]
 async-trait = ["dep:async-trait"]
-# derive = ["bees-macros"]
+derive = ["dep:bees-macros"]
 
 [profile.release]
 opt-level = 3

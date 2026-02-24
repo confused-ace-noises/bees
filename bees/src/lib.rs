@@ -8,6 +8,7 @@ pub mod net;
 pub mod handler;
 pub mod utils;
 pub mod resources;
+pub mod provided;
 
 pub static RESOURCE_MANAGER: LazyLock<ResourceManager> = LazyLock::new(|| {
     ResourceManager::new()
@@ -56,4 +57,15 @@ macro_rules! attach_processor {
             }
         }
     };
+}
+
+#[cfg(feature = "derive")]
+pub use bees_macros::*;
+
+pub mod re_exports {
+    pub use reqwest;
+    pub use async_rate_limiter;
+    pub use async_lock;
+    pub use url;
+    pub use dashmap;
 }

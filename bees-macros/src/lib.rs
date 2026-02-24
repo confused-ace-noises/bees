@@ -1,7 +1,42 @@
 use proc_macro::TokenStream;
-use proc_macro_crate::{FoundCrate, crate_name};
-use quote::{ToTokens, quote};
-use syn::{LitStr, parse_quote, spanned::Spanned};
+
+use crate::{endpoint::endpoint_derive, process::procs_derive_impl, record::record_impl};
+
+mod process;
+mod record;
+mod endpoint;
+
+#[proc_macro_derive(EndpointProcessor, attributes(process))]
+pub fn endpoint_process(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+
+    match procs_derive_impl(input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+#[proc_macro_derive(Record, attributes(record))]
+pub fn record(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+
+    match record_impl(input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+#[proc_macro_derive(Endpoint, attributes(endpoint))]
+pub fn endpoint(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+
+    match endpoint_derive(input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+
 /*
 #[proc_macro]
 pub fn format_string(stream: TokenStream) -> TokenStream {

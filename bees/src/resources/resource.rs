@@ -3,18 +3,18 @@ use std::{borrow::Borrow, fmt::{Debug, Display}, hash::Hash};
 use std::pin::Pin;
 
 #[cfg(not(feature = "async-trait"))]
-pub struct ResourceOutput<'a>(pub Pin<Box<dyn Future<Output = Box<dyn Display>> + Send + 'a>>);
+pub struct ResourceOutput<'a>(pub Pin<Box<dyn Future<Output = Box<dyn Display + Send>> + Send + 'a>>);
 
 #[cfg(not(feature = "async-trait"))]
 impl<'a> ResourceOutput<'a> {
-    pub fn new(fut: impl Future<Output = Box<dyn Display>> + Send + 'a) -> Self {
+    pub fn new(fut: impl Future<Output = Box<dyn Display + Send>> + Send + 'a) -> Self {
         Self(Box::pin(fut))
     }
 }
 
 #[cfg(not(feature = "async-trait"))]
 impl<'a> Future for ResourceOutput<'a> {
-    type Output = Box<dyn Display>;
+    type Output = Box<dyn Display + Send>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         self.0.as_mut().poll(cx)
