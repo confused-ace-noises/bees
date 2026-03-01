@@ -5,7 +5,7 @@ use bees::{
     self, Endpoint, EndpointProcessor, Record, capability::Capability, endpoint::{self, EndpointInfo, EndpointProcessor, Process}, handler::{BaseHandler, Handler, Retries, RetriesWrapper, WrapDecorate}, net::{
         Client, HttpVerb,
         bodies::{Body, TextBody},
-    }, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}, record::Record
+    }, process, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}, record::Record
 };
 use reqwest::{Response, header::HeaderMap};
 use url::Url;
@@ -43,14 +43,19 @@ impl Process for NoOpProcessor {
     }
 }
 
-struct IntoTextProcessor;
+// struct IntoTextProcessor;
 
-impl Process for IntoTextProcessor {
-    type ProcessOutput = String;
+// impl Process for IntoTextProcessor {
+//     type ProcessOutput = String;
 
-    async fn process(resp: Response) -> Self::ProcessOutput {
-        resp.text().await.unwrap()
-    }
+//     async fn process(resp: Response) -> Self::ProcessOutput {
+//         resp.text().await.unwrap()
+//     }
+// }
+
+#[process]
+async fn IntoTextProcessor(resp: Response) -> String {
+    resp.text().await.unwrap()
 }
 
 // impl EndpointProcessor<String> for Test {

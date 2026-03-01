@@ -10,7 +10,7 @@ use bees::{
     endpoint::{self, EndpointInfo, EndpointProcessor, Process},
     handler::{BaseHandler, Handler, Retries, RetriesWrapper, WrapDecorate},
     net::{Client, HttpVerb, bodies::{Body, TextBody}},
-    provided::capabilities::add_headers::{AddHeaderMap, AddHeaders},
+    process, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders},
     record::Record,
 };
 use reqwest::{Response, header::HeaderMap};
@@ -66,10 +66,16 @@ impl Process for NoOpProcessor {
     }
 }
 struct IntoTextProcessor;
-impl Process for IntoTextProcessor {
+impl ::bees::endpoint::Process for IntoTextProcessor {
     type ProcessOutput = String;
-    async fn process(resp: Response) -> Self::ProcessOutput {
-        resp.text().await.unwrap()
+    fn process(
+        _IntoTextProcessor__: Response,
+    ) -> impl Future<Output = Self::ProcessOutput> + Send {
+        #[allow(non_snake_case)]
+        async fn _IntoTextProcessor(resp: Response) -> String {
+            resp.text().await.unwrap()
+        }
+        _IntoTextProcessor(_IntoTextProcessor__)
     }
 }
 impl EndpointProcessor<u8> for Test {

@@ -1,68 +1,107 @@
-use deluxe::{HasAttributes, ParseAttributes};
-// use proc_macro_crate::{FoundCrate, crate_name};
+use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{Token, punctuated::Punctuated, spanned::Spanned};
+use syn::{FnArg, Ident, PatType, Signature, Type, TypePath, spanned::Spanned};
 
-pub(crate) fn procs_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
-    let ProcessAttrs(procs) = ProcessAttrs::parse_attributes(&input)?;
+pub(crate) fn attr_process(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
     
-    let ident = input.ident;
+    let cloned_sig = func.sig.clone();
     
-    let impls = procs.into_iter().map(|proc_path| {
-        let span = proc_path.span();
-        quote_spanned! {span=> 
-            #[automatically_derived]
-            impl ::bees::endpoint::EndpointProcessor<<#proc_path as ::bees::endpoint::Process>::ProcessOutput> for #ident {
-                type Process = #proc_path;
+    let sig = &mut func.sig;
+    let vis = &func.vis;
 
-                fn refine(proc_output: <Self::Process as Process>::ProcessOutput, _: &Self::CallContext) -> impl ::std::future::Future<Output = <Self::Process as Process>::ProcessOutput> {
-                    ::std::future::ready(proc_output)
-                }
-            }
+    let (input, output) = check_signature(&cloned_sig)?;
+    let output_span = sig.output.span();
+
+    let mut hijacked_name = String::from("_");
+    hijacked_name.push_str(&sig.ident.to_string());
+
+    let ident = Ident::new(&hijacked_name, sig.ident.span());
+
+    hijacked_name.push_str("__");
+
+    let input_ident = Ident::new(&hijacked_name, Span::call_site());
+
+    sig.ident = ident.clone();
+
+
+    let name = &cloned_sig.ident;
+    let name_span = name.span();
+
+    let is_async = cloned_sig.asyncness.is_some();
+
+    let struct_ = quote_spanned! {name.span()=> #vis struct #name;};
+
+    let struct_impl = quote_spanned! {name_span=> impl ::bees::endpoint::Process for #name};
+
+    let output_type = quote_spanned! {output_span=> type ProcessOutput = #output; };
+
+    let call = {
+        if is_async {
+            quote!{#ident(#input_ident)}
+        } else {
+            quote! {::std::future::ready(#ident(#input_ident))}
         }
-    });
-
-
-    let all_impls = quote! {
-        #(#impls)*
     };
 
-    Ok(all_impls)
+    let fn_process = quote! {
+            fn process(#input_ident: #input) -> impl Future<Output = Self::ProcessOutput> + Send {
+            #[allow(non_snake_case)]
+            #func
+
+            #call
+        }
+    };
+
+    let finished = quote! {
+        #struct_
+        #struct_impl {
+            #output_type
+
+            #fn_process
+        }
+    };
+
+    Ok(finished)
 }
 
-#[derive(Debug)]
-// #[deluxe(attributes(process))]
-struct ProcessAttrs(syn::punctuated::Punctuated<syn::Path, Token![,]>);
-
-impl ProcessAttrs {
-    fn path_match(path: &syn::Path) -> bool {
-        path.is_ident("process")
-    }
-}
-
-impl<'t, T: HasAttributes> ParseAttributes<'t, T> for ProcessAttrs {
-    fn path_matches(path: &syn::Path) -> bool {
-        Self::path_match(path)
+fn check_signature(sig: &Signature) -> syn::Result<(&syn::Path, &Type)> {
+    if sig.inputs.len() != 1 {
+        return Err(syn::Error::new_spanned(&sig.inputs, "Expected exactly one argument of type `reqwest::Response` for a `Processor`."))
     }
 
-    fn parse_attributes(obj: &'t T) -> deluxe::Result<Self> {
-        let mut result = Punctuated::<syn::Path, Token![,]>::new();
-        
-        for attr in obj.attrs() {
-            if !Self::path_match(attr.path()) {
-                continue;
+    let input = &sig.inputs[0];
+    // let input_name = input.
+    let input_path: &syn::Path;
+
+    match input {
+        FnArg::Typed(PatType { ty, .. }) => {
+            match &**ty {
+                syn::Type::Path(TypePath { path, ..}) => {
+                    let last_segment = path.segments.last().ok_or(syn::Error::new_spanned(path, "path should not be empty."))?;
+                    
+                    if last_segment.ident != "Response" {
+                        return Err(syn::Error::new_spanned(last_segment, "A `Processor` must only take one argument and it must be of type `Response`."));
+                    }
+
+                    input_path = path;
+                },
+                _ => return Err(syn::Error::new_spanned(input, "A `Processor` must only take one argument and it must be of type `Response`.")),
+            }
+            
+        },
+        _ => return Err(syn::Error::new_spanned(input, "A `Processor` must only take one argument and it must be of type `Response`.")),
+    }
+
+    match &sig.output {
+        syn::ReturnType::Default => Err(syn::Error::new_spanned(&sig.output, "The return type of a `Processor` must be explicit. If you really intended for this `Processor` to return (), add `-> ()` as the return type")),
+        syn::ReturnType::Type(.., ty) => {
+            let ty = &**ty;
+            
+            if let Type::ImplTrait(_) = ty {
+                return Err(syn::Error::new_spanned(ty, "`impl Trait` in this position is not allowed in stable rust."))
             }
 
-            // Ensure it's #[process(...)]
-            let meta = attr.meta.require_list()?;
-
-            // Parse the contents inside (...)
-            let parsed: Punctuated<syn::Path, Token![,]> =
-                meta.parse_args_with(Punctuated::parse_terminated)?;
-
-            result.extend(parsed);
+            Ok((input_path, ty))
         }
-
-        Ok(ProcessAttrs(result))
     }
 }

@@ -110,6 +110,6 @@ struct EndpointAttributes {
     #[deluxe(default = Vec::new())]
     processors: Vec<syn::Path>,
     path: syn::LitStr,
-    handler: (syn::Path, syn::Expr),
+    handler: (syn::Expr, syn::Path),
     modify_url: Option<syn::Path>,
 }

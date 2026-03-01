@@ -1,10 +1,22 @@
 use proc_macro::TokenStream;
 
-use crate::{endpoint::endpoint_derive, process::procs_derive_impl, record::record_impl};
+use crate::{derive_process::procs_derive_impl, endpoint::endpoint_derive, process::attr_process, record::record_impl};
 
+mod derive_process;
 mod process;
 mod record;
 mod endpoint;
+
+#[proc_macro_attribute]
+pub fn process(_attrs: TokenStream, input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::ItemFn);
+    
+    match attr_process(input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+} 
+
 
 #[proc_macro_derive(EndpointProcessor, attributes(process))]
 pub fn endpoint_process(input: TokenStream) -> TokenStream {
