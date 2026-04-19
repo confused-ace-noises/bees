@@ -1,15 +1,14 @@
 use crate::{
-    endpoint::{EndpointExt, EndpointInfo, EndpointProcessor, Process},
+    endpoint::{EndpointExt, EndpointInfo, Process, SupportsOutput},
     handler::{Handler, HandlerWrapper, WrapDecorate},
-    net::{bodies::Body, net_error::NetError}
+    net::{bodies::Body, net_error::NetError, rate_limiter::RateLimiter}
 };
 use derive_more::{Display, Error, From};
-use async_rate_limiter::RateLimiter;
-use futures::{FutureExt, future::join};
+use futures::future::join;
 use reqwest::{Client as ReqClient, Method, Response};
 use std::{
     error::Error as StdError,
-    fmt::{self, Debug},
+    fmt::Debug,
     sync::Arc,
 };
 
@@ -17,20 +16,20 @@ use super::request::{Request, RequestBuilder};
 // use super::net_error::NetError as Error;
 use crate::utils::error::Error;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Client {
     inner: Arc<ReqClient>,
     rate_limiter: Arc<RateLimiter>,
 }
 
-impl fmt::Debug for Client {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Client")
-            .field("inner", &self.inner)
-            .field("rate_limiter", &"async_rate_limiter internals")
-            .finish()
-    }
-}
+// impl fmt::Debug for Client {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         f.debug_struct("Client")
+//             .field("inner", &self.inner)
+//             .field("rate_limiter", &"async_rate_limiter internals")
+//             .finish()
+//     }
+// }
 
 impl Client {
     pub fn new(reqwest_client: ReqClient, rate_limiter: RateLimiter) -> Self {
@@ -57,6 +56,27 @@ impl Client {
     }
 
     // --------- DIRECT ---------
+    ////// NO RATE LIMITER //////
+    pub async fn reqwest_direct_no_rate_limit<Fut, E, F>(&self, f: F) -> Result<Response, E>
+    where
+        F: FnOnce(Arc<ReqClient>) -> Result<Fut, E>,
+        Fut: Future<Output = Result<Response, E>>,
+        E: StdError,
+    {
+        // self.rate_limiter.acquire().await;
+        f(self.inner.clone())?.await
+    }
+
+    pub async fn execute_request_no_rate_limiter(&self, request: Request) -> Result<Response, Error> {
+        // self.rate_limiter.acquire().await;
+        Ok(self
+            .inner
+            .execute(request.inner)
+            .await
+            .map_err(NetError::ReqwestError)?)
+    }
+
+    //////// RATE LIMITER ////////
     pub async fn reqwest_direct<Fut, E, F>(&self, f: F) -> Result<Response, E>
     where
         F: FnOnce(Arc<ReqClient>) -> Result<Fut, E>,
@@ -74,12 +94,19 @@ impl Client {
         }
     }
 
-    #[allow(dead_code)]
-    pub(crate) async fn execute_reqwest_req(
+    pub async fn execute_reqwest_req(
         &self,
         request: reqwest::Request,
     ) -> Result<Response, Error> {
         self.rate_limiter.acquire().await;
+        self.execute_reqwest_req_no_rate_limit(request).await
+    }
+
+    pub async fn execute_reqwest_req_no_rate_limit(
+        &self,
+        request: reqwest::Request,
+    ) -> Result<Response, Error> {
+        // self.rate_limiter.acquire().await;
         Ok(self.inner.execute(request).await.map_err(NetError::from)?)
     }
 
@@ -165,6 +192,10 @@ impl Client {
     ) -> EndpointRunnerRef<'a, E, E::EndpointHandler> {
         EndpointRunnerRef::new(self.clone(), call_context)
     }
+
+    pub fn get_rate_limiter(&self) -> Arc<RateLimiter> {
+        self.rate_limiter.clone()
+    }
 }
 
 #[derive(Debug)]
@@ -207,17 +238,17 @@ impl<E: EndpointInfo, H: Handler> EndpointRunner<E, H> {
     
     pub async fn run<O>(&self) -> Result<O, EndpointRunnerError<H>>
     where
-        E: EndpointProcessor<O>,
+        E: SupportsOutput<O>,
     {
         let response = self.run_get_response().await?;
-        let proc_output = <E::Process as Process>::process(response).await;
+        let proc_output = E::Process::process(response).await;
 
-        Ok(E::refine(proc_output, &self.call_context).await)
+        Ok(proc_output)
     }
 
-    pub async fn run_and_get_context<O>(self) -> Result<(O, E::CallContext), EndpointRunnerError<H>>
+    pub async fn run_get_context<O>(self) -> Result<(O, E::CallContext), EndpointRunnerError<H>>
     where
-        E: EndpointProcessor<O>,
+        E: SupportsOutput<O>,
     {
         self.run::<O>().await.map(move |ok| (ok, self.call_context))
     }
@@ -226,7 +257,7 @@ impl<E: EndpointInfo, H: Handler> EndpointRunner<E, H> {
 pub struct EndpointRunnerRef<'a, E: EndpointInfo, H: Handler> {
     client: Client,
     handler: H,
-    call_context: &'a mut E::CallContext,
+    pub call_context: &'a mut E::CallContext,
 }
 
 impl<'a, E: EndpointInfo> EndpointRunnerRef<'a, E, E::EndpointHandler> {
@@ -248,12 +279,12 @@ impl<'a, E: EndpointInfo, H: Handler> EndpointRunnerRef<'a, E, H> {
     
     pub async fn run<O>(&mut self) -> Result<O, EndpointRunnerError<H>>
     where
-        E: EndpointProcessor<O>,
+        E: SupportsOutput<O>,
     { 
         let response = self.run_get_response().await?;
-        let proc_output = <E::Process as Process>::process(response).await;
+        let proc_output = <E as SupportsOutput<O>>::Process::process(response).await;
 
-        Ok(E::refine(proc_output, self.call_context).await)
+        Ok(proc_output)
     }
 }
 

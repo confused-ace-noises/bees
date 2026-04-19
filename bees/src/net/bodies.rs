@@ -1,6 +1,6 @@
 #[cfg(not(feature = "async-trait"))]
 use crate::CapabilityOutput;
-use crate::{capability::Capability, net::RequestBuilder, utils::format_string::FormatString};
+use crate::{CapError, capability::Capability, net::RequestBuilder, utils::format_string::FormatString};
 use std::fmt::Debug;
 use crate::utils::error::Error;
 
@@ -15,7 +15,7 @@ impl Body {
     pub async fn add_body(
         &self,
         request: RequestBuilder,
-    ) -> Result<RequestBuilder, Error> {
+    ) -> Result<RequestBuilder, CapError> {
         self.0.apply(request).await
     }
 }
@@ -33,6 +33,7 @@ impl Capability for TextBody {
                 .to_formatted_now()
                 .await
                 .map(|string| request.body(string))
+                .map_err(|e| Box::new(e) as CapError)
         })
     }
 }
@@ -40,11 +41,12 @@ impl Capability for TextBody {
 #[cfg(feature = "async-trait")]
 #[async_trait::async_trait]
 impl Capability for TextBody {
-    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, Error> {
+    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, CapError> {
         self.0
             .to_formatted_now()
             .await
             .map(|string| request.body(string))
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
     }
 }
 
@@ -67,11 +69,12 @@ impl Capability for JsonBody {
 #[cfg(all(feature = "reqwest-json", feature = "async-trait"))]
 #[async_trait::async_trait]
 impl Capability for JsonBody {
-    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, Error> {
+    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, CapError> {
         FormatString::new(self.0.to_string())
             .to_formatted_now()
             .await
             .map(|j| request.body(j))
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
     }
 }
 
@@ -99,7 +102,7 @@ impl<F> Capability for MultiPartBody<F>
 where
     F: Fn() -> Result<reqwest::multipart::Form, Error> + Send + Sync + 'static,
 {
-    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, Error> {
-        Ok(request.multipart((self.0)()?))
+    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, CapError> {
+        Ok(request.multipart((self.0)().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?))
     }
 }

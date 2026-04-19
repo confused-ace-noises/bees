@@ -7,7 +7,6 @@ edition = "2024"
 bees = { path = "../bees", features = ["derive"]}
 url = "*"
 reqwest = "*"
-async-rate-limiter = "1.1.0"
 tokio = { version = "*", features = ["full"] }
 
 [profile.release]

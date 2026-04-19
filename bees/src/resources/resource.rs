@@ -1,20 +1,27 @@
-use std::{borrow::Borrow, fmt::{Debug, Display}, hash::Hash};
+use std::{borrow::Borrow, fmt::{Debug, Display}, hash::Hash, error::Error as StdError};
+// #[cfg(not(feature = "async-trait"))]
+use std::{any::Any, sync::Arc};
 #[cfg(not(feature = "async-trait"))]
 use std::pin::Pin;
 
+pub type ResourceReadable = Box<dyn Display + Send + 'static>;
+pub type ResourceError = Arc<dyn Any + Send + Sync + 'static>;
+pub type ResourceResult = Result<ResourceReadable, ResourceError>;
+pub type ResourceFuture<'a> = dyn Future<Output = ResourceResult> + Send + 'a;
+
 #[cfg(not(feature = "async-trait"))]
-pub struct ResourceOutput<'a>(pub Pin<Box<dyn Future<Output = Box<dyn Display + Send>> + Send + 'a>>);
+pub struct ResourceOutput<'a>(pub Pin<Box<ResourceFuture<'a>>>);
 
 #[cfg(not(feature = "async-trait"))]
 impl<'a> ResourceOutput<'a> {
-    pub fn new(fut: impl Future<Output = Box<dyn Display + Send>> + Send + 'a) -> Self {
+    pub fn new(fut: impl Future<Output = Result<ResourceReadable, ResourceError>> + Send + 'a) -> Self {
         Self(Box::pin(fut))
     }
 }
 
 #[cfg(not(feature = "async-trait"))]
 impl<'a> Future for ResourceOutput<'a> {
-    type Output = Box<dyn Display + Send>;
+    type Output = ResourceResult;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         self.0.as_mut().poll(cx)
@@ -31,7 +38,7 @@ pub trait Resource: Debug + Send + Sync {
 #[async_trait::async_trait]
 pub trait Resource: Debug + Send + Sync {
     fn ident(&self) -> &str;
-    async fn data(&self) -> Box<dyn Display>;
+    async fn data(&self) -> ResourceResult;
 }
 
 impl PartialEq for dyn Resource {

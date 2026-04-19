@@ -1,3 +1,6 @@
+#[cfg(feature = "async-trait")]
+use crate::resources::resource::ResourceResult;
+
 #[cfg(not(feature = "async-trait"))]
 use super::resource::ResourceOutput;
 
@@ -53,7 +56,7 @@ impl Resource for DynResource {
     }
 
     fn data<'a>(&'a self) -> ResourceOutput<'a> {
-        ResourceOutput::new(async move {Box::new(self.0.data().await) as Box<dyn Display + Send>})
+        ResourceOutput::new(self.0.data())
     }
 }
 
@@ -64,8 +67,8 @@ impl Resource for DynResource {
         self.0.ident()
     }
 
-    async fn data(&self) -> Box<dyn Display> {
-        Box::new(self.0.data().await)
+    async fn data(&self) -> ResourceResult {
+        self.0.data().await
     }
 }
 

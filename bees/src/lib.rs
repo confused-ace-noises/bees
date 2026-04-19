@@ -1,6 +1,7 @@
-use std::{pin::Pin, sync::LazyLock};
+use std::{mem::ManuallyDrop, pin::Pin, sync::LazyLock};
 
 use crate::{net::RequestBuilder, resources::resource_handler::ResourceManager, utils::error::Error};
+use std::error::Error as StdError;
 pub mod endpoint;
 pub mod record;
 pub mod capability;
@@ -18,19 +19,21 @@ pub fn resource_manager() -> &'static ResourceManager {
     &RESOURCE_MANAGER
 }
 
+pub type CapError = Box<dyn StdError + Send>;
+
 #[cfg(not(feature = "async-trait"))]
-pub struct CapabilityOutput<'a>(pub Pin<Box<dyn Future<Output = Result<RequestBuilder, Error>> + Send + 'a>>);
+pub struct CapabilityOutput<'a>(pub Pin<Box<dyn Future<Output = Result<RequestBuilder, CapError>> + Send + 'a>>);
 
 #[cfg(not(feature = "async-trait"))]
 impl<'a> CapabilityOutput<'a> {
-    pub fn new(fut: impl Future<Output = Result<RequestBuilder, Error>> + Send + 'a) -> Self {
+    pub fn new(fut: impl Future<Output = Result<RequestBuilder, CapError>> + Send + 'a) -> Self {
         Self(Box::pin(fut))
     }
 }
 
 #[cfg(not(feature = "async-trait"))]
 impl<'a> Future for CapabilityOutput<'a> {
-    type Output = Result<RequestBuilder, Error>;
+    type Output = Result<RequestBuilder, CapError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         self.0.as_mut().poll(cx)
@@ -44,7 +47,7 @@ macro_rules! attach_processor {
         $(
             impl EndpointProcessor<$ret> for $endpoints {
                 fn process(&mut self, resp: Response, _: &Self::CallContext) -> impl Future<Output = $ret> {
-                    $ident(resp)
+                    $name(resp)
                 }
             }
         )+
@@ -53,7 +56,7 @@ macro_rules! attach_processor {
     ($name:ident -> $ret:ty: all) => {
         impl<E: EndpointInfo> EndpointProcessor<$ret> for E {
             fn process(&mut self, resp: Response, _: &Self::CallContext) -> impl Future<Output = $ret> {
-                $ident(resp)
+                $name(resp)
             }
         }
     };
@@ -64,8 +67,6 @@ pub use bees_macros::*;
 
 pub mod re_exports {
     pub use reqwest;
-    pub use async_rate_limiter;
-    pub use async_lock;
     pub use url;
     pub use dashmap;
 }

@@ -64,10 +64,8 @@ impl<E: EndpointInfo> EndpointExt for E {
     }
 }
 
-pub trait EndpointProcessor<O>: EndpointInfo {
-    type Process: Process;
-
-    fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &Self::CallContext) -> impl Future<Output = O> + Send;
+pub trait SupportsOutput<O>: EndpointInfo {
+    type Process: Process<ProcessOutput = O>;
 }
 
 pub trait Process {
@@ -89,21 +87,13 @@ mod test {
         }
     }
 
-    impl EndpointProcessor<String> for Test {
-        type Process = NoOpProcess;
-    
-        async fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &Self::CallContext) -> String {
-            proc_output.text().await.unwrap()
-        }
+    impl SupportsOutput<String> for Test {
+        type Process = TextProcess;
     }
 
-    impl EndpointProcessor<u8> for Test {
-        type Process = TextProcess;
-    
-        fn refine(proc_output: <Self::Process as Process>::ProcessOutput, call_context: &Self::CallContext) -> impl Future<Output = u8> {
-            ready(proc_output.as_bytes()[0])
-        }
-    }
+    // impl EndpointProcessor<u8> for Test {
+    //     type Process = TextProcess;
+    // }
 
     #[derive(Debug)]
     struct Test;

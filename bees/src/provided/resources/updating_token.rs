@@ -1,16 +1,31 @@
-use std::fmt::{Display, Debug};
-use std::time::{Instant, Duration};
+use std::any::Any;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use async_lock::RwLock;
-use crate::endpoint::{EndpointInfo, EndpointProcessor};
+use crate::endpoint::{EndpointInfo, SupportsOutput};
+use crate::handler::Handler;
 use crate::net::{Client, EndpointRunnerError};
-use crate::resources::resource::{Resource, ResourceOutput};
+use crate::resources::resource::{Resource, ResourceResult};
+use derive_more::From;
+use tokio::sync::RwLock;
+
+#[cfg(not(feature = "async-trait"))]
+use crate::resources::resource::Resource;
+
+use std::error::Error as StdError;
+
+type EndpointOutput = Result<Token, Arc<dyn Any + Send + Sync>>;
+
+pub trait CanBeUsed: StdError + Clone {}
+
+impl<T: StdError + Clone> CanBeUsed for T {}
 
 #[derive(Debug)]
 pub struct UpdatingToken<E>
 where
-    E: EndpointInfo<CallContext = ()> + EndpointProcessor<Token> + Debug + Send + Sync,
+    E: EndpointInfo<CallContext = ()> + SupportsOutput<EndpointOutput> + Debug + Send + Sync,
 {
     pub client: Client,
     pub ident: String,
@@ -21,19 +36,30 @@ where
     endpoint: PhantomData<E>,
 }
 
-impl<E> UpdatingToken<E> 
-where 
-    E: EndpointInfo<CallContext = ()> + EndpointProcessor<Token> + Sync,
+#[derive(From)]
+pub enum UpdatingTokenError<H: Handler> {
+    TokenError(Arc<dyn Any + Send + Sync>),
+    EndpointRunnerError(EndpointRunnerError<H>)
+}
+
+impl<E> UpdatingToken<E>
+where
+    E: EndpointInfo<CallContext = ()> + SupportsOutput<EndpointOutput> + Sync,
     E::EndpointHandler: Sync,
 {
     pub async fn new(
         ident: impl AsRef<str>,
         update_interval: Duration,
         client: Client,
-    ) -> Result<Self, EndpointRunnerError<E::EndpointHandler>> {
-        let first_value = client.run_endpoint::<E>().run::<Token>().await?;
+    ) -> Result<Self, UpdatingTokenError<E::EndpointHandler>> {
+        let first_value = client.run_endpoint::<E>().run::<EndpointOutput>().await??;
 
-        Ok(Self::new_start_with(ident, first_value, update_interval, client))
+        Ok(Self::new_start_with(
+            ident,
+            first_value,
+            update_interval,
+            client,
+        ))
     }
 
     pub fn new_start_with(
@@ -52,8 +78,8 @@ where
         }
     }
 
-    pub async fn force_update(&self) -> Result<(), EndpointRunnerError<E::EndpointHandler>> {
-        let token = self.get_new_token().await?;
+    pub async fn force_update(&self) -> Result<(), UpdatingTokenError<E::EndpointHandler>> {
+        let token = self.get_new_token().await??;
         let mut lock_token = self.value.write().await;
         let mut lock_last_update = self.last_update.write().await;
 
@@ -63,8 +89,41 @@ where
         Ok(())
     }
 
-    pub async fn get_new_token(&self) -> Result<Token, EndpointRunnerError<E::EndpointHandler>> {
-        self.client.run_endpoint::<E>().run::<Token>().await
+    pub async fn get_new_token(
+        &self,
+    ) -> Result<EndpointOutput, EndpointRunnerError<E::EndpointHandler>> {
+        self.client
+            .run_endpoint::<E>()
+            .run::<EndpointOutput>()
+            .await
+    }
+
+    pub async fn is_expired(&self) -> bool {
+        self.last_update.read().await.elapsed() >= self.update_interval
+    }
+
+    pub async fn get_token(&self) -> ResourceResult {
+        if self.is_expired().await {
+            let mut token_value = self.value.write().await;
+            let mut last_update = self.last_update.write().await;
+
+            if self.is_expired().await {
+                let possible_token = self.get_new_token().await;
+
+                match possible_token {
+                    Ok(Ok(token)) => {
+                        *last_update = Instant::now();
+                        *token_value = token;
+                    }
+                    Ok(_) => todo!(),
+                    Err(_) => todo!(),
+                }
+            }
+        }
+
+        let read_value = self.value.read().await;
+
+        Ok(Box::new(read_value.clone()))
     }
 }
 
@@ -77,9 +136,10 @@ impl Display for Token {
     }
 }
 
-impl<E> Resource for UpdatingToken<E> 
-where 
-    E: EndpointInfo<CallContext = ()> + EndpointProcessor<Token> + Sync,
+#[cfg(not(feature = "async-trait"))]
+impl<E> Resource for UpdatingToken<E>
+where
+    E: EndpointInfo<CallContext = ()> + SupportsOutput<EndpointOutput> + Sync,
     E::EndpointHandler: Sync,
 {
     fn ident(&self) -> &str {
@@ -87,20 +147,22 @@ where
     }
 
     fn data<'a>(&'a self) -> ResourceOutput<'a> {
-        ResourceOutput::new(async move {
-            if self.last_update.read().await.elapsed() >= self.update_interval {
-                let mut token_value = self.value.write().await;
-                let mut last_update = self.last_update.write().await;
+        ResourceOutput::new(self.get_token())
+    }
+}
 
-                if self.last_update.read().await.elapsed()>= self.update_interval {
-                    let token = self.get_new_token().await.expect("failed to update token");
+#[cfg(feature = "async-trait")]
+#[async_trait::async_trait]
+impl<E> Resource for UpdatingToken<E>
+where
+    E: EndpointInfo<CallContext = ()> + SupportsOutput<EndpointOutput> + Sync,
+    E::EndpointHandler: Sync,
+{
+    fn ident(&self) -> &str {
+        self.ident.as_str()
+    }
 
-                    *last_update = Instant::now();
-                    *token_value = token; 
-                }
-            }
-            
-            Box::new(self.value.read().await.clone()) as Box<dyn Display + Send>
-        })
+    async fn data(&self) -> ResourceResult {
+        self.get_token().await
     }
 }

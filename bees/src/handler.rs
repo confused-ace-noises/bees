@@ -35,13 +35,21 @@ impl<H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W> for H {
 
 // ######## BASE_HANDLER ########
 #[derive(Debug, Clone)]
-pub struct BaseHandler;
+pub struct NoRateLimiterBaseHandler;
 
-// impl Default for BaseHandler {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
+impl Handler for NoRateLimiterBaseHandler {
+    type Error = Error;
+
+    async fn execute(
+        &self,
+        req: Request,
+    ) -> Result<reqwest::Response, Self::Error> {
+        req.client.execute_reqwest_req_no_rate_limit(req.inner).await
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BaseHandler;
 
 impl Handler for BaseHandler {
     type Error = Error;

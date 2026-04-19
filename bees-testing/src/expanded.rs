@@ -1,50 +1,45 @@
 #![feature(prelude_import)]
 #[macro_use]
-extern crate std;
-#[prelude_import]
+// extern crate std;
+// #[prelude_import]
 use std::prelude::rust_2024::*;
 use std::{future::ready, sync::Arc};
-use async_rate_limiter::RateLimiter;
 use bees::{
     self, Endpoint, EndpointProcessor, Record, capability::Capability,
-    endpoint::{self, EndpointInfo, EndpointProcessor, Process},
-    handler::{BaseHandler, Handler, Retries, RetriesWrapper, WrapDecorate},
-    net::{Client, HttpVerb, bodies::{Body, TextBody}},
+    endpoint::{EndpointInfo, SupportsOutput, Process},
+    handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate},
+    net::{Client, HttpVerb},
     process, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders},
-    record::Record,
 };
 use reqwest::{Response, header::HeaderMap};
 use url::Url;
-fn main() {
-    let body = async {
-        let client = Client::new(reqwest::Client::new(), RateLimiter::new(2));
-        let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
-        let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
-        let x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
-            .run::<String>()
-            .await;
-        {
-            ::std::io::_print(format_args!("{0:?}\n", client));
-        }
-    };
-    #[allow(
-        clippy::expect_used,
-        clippy::diverging_sub_expression,
-        clippy::needless_return,
-        clippy::unwrap_in_result
-    )]
-    {
-        return tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Failed building the Runtime")
-            .block_on(body);
-    }
-}
-#[record(
-    path = "https://idk.com/",
-    capabilities([AddHeaders(Vec::new()), AddHeaderMap(HeaderMap::new())])
-)]
+// fn main() {
+//     // let body = async {
+//     //     let client = Client::new(reqwest::Client::new(), RateLimiter::new(2));
+//     //     let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
+//     //     let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
+//     //     let _x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
+//     //         .run::<String>()
+//     //         .await;
+//     //     {
+//     //         ::std::io::_print(format_args!("{0:?}\n", client));
+//     //     }
+//     // };
+//     #[allow(
+//         clippy::expect_used,
+//         clippy::diverging_sub_expression,
+//         clippy::needless_return,
+//         clippy::unwrap_in_result
+//     )]
+//     {
+//         return tokio::runtime::Builder::new_multi_thread()
+//             .enable_all()
+//             .build()
+//             .expect("Failed building the Runtime")
+//             .block_on(body);
+//     }
+// }
+
 pub struct TestRecord;
 #[automatically_derived]
 impl ::bees::record::Record for TestRecord {
@@ -58,46 +53,30 @@ impl ::bees::record::Record for TestRecord {
         ])
     }
 }
-struct NoOpProcessor;
-impl Process for NoOpProcessor {
+struct NoOpProcess;
+impl Process for NoOpProcess {
     type ProcessOutput = Response;
     fn process(resp: Response) -> impl Future<Output = Self::ProcessOutput> {
         ready(resp)
     }
 }
-struct IntoTextProcessor;
-impl ::bees::endpoint::Process for IntoTextProcessor {
+struct IntoTextProcess;
+impl ::bees::endpoint::Process for IntoTextProcess {
     type ProcessOutput = String;
     fn process(
-        _IntoTextProcessor__: Response,
+        _IntoTextProcess__: Response,
     ) -> impl Future<Output = Self::ProcessOutput> + Send {
         #[allow(non_snake_case)]
-        async fn _IntoTextProcessor(resp: Response) -> String {
+        async fn _IntoTextProcess(resp: Response) -> String {
             resp.text().await.unwrap()
         }
-        _IntoTextProcessor(_IntoTextProcessor__)
-    }
-}
-impl EndpointProcessor<u8> for Test {
-    type Process = IntoTextProcessor;
-    fn refine(
-        proc_output: <Self::Process as Process>::ProcessOutput,
-        _: &Self::CallContext,
-    ) -> impl Future<Output = u8> {
-        ready(proc_output.as_bytes()[0])
+        _IntoTextProcess(_IntoTextProcess__)
     }
 }
 async fn url_func(url: Url) -> Url {
     url
 }
-#[endpoint(
-    record = TestRecord,
-    handler(BaseHandler, BaseHandler),
-    http_verb = HttpVerb::GET,
-    path = "idk",
-    modify_url = url_func,
-    processors(NoOpProcessor, IntoTextProcessor)
-)]
+
 struct Test2;
 #[automatically_derived]
 impl ::core::fmt::Debug for Test2 {
@@ -120,7 +99,8 @@ impl ::bees::endpoint::EndpointInfo for Test2 {
         ::std::sync::Arc::new([])
     }
     fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler {
-        BaseHandler
+        let x = BaseHandler;
+        x
     }
     #[allow(clippy::manual_async_fn)]
     fn modify_url(
@@ -133,33 +113,18 @@ impl ::bees::endpoint::EndpointInfo for Test2 {
     }
 }
 #[automatically_derived]
-impl ::bees::endpoint::EndpointProcessor<
-    <NoOpProcessor as ::bees::endpoint::Process>::ProcessOutput,
+impl ::bees::endpoint::SupportsOutput<
+    <NoOpProcess as ::bees::endpoint::Process>::ProcessOutput,
 > for Test2 {
-    type Process = NoOpProcessor;
-    #[allow(clippy::manual_async_fn)]
-    fn refine(
-        proc_output: <Self::Process as Process>::ProcessOutput,
-        _: &Self::CallContext,
-    ) -> impl ::std::future::Future<Output = <Self::Process as Process>::ProcessOutput> {
-        ::std::future::ready(proc_output)
-    }
+    type Process = NoOpProcess;
 }
 #[automatically_derived]
-impl ::bees::endpoint::EndpointProcessor<
-    <IntoTextProcessor as ::bees::endpoint::Process>::ProcessOutput,
+impl ::bees::endpoint::SupportsOutput<
+    <IntoTextProcess as ::bees::endpoint::Process>::ProcessOutput,
 > for Test2 {
-    type Process = IntoTextProcessor;
-    #[allow(clippy::manual_async_fn)]
-    fn refine(
-        proc_output: <Self::Process as Process>::ProcessOutput,
-        _: &Self::CallContext,
-    ) -> impl ::std::future::Future<Output = <Self::Process as Process>::ProcessOutput> {
-        ::std::future::ready(proc_output)
-    }
+    type Process = IntoTextProcess;
 }
-#[process(NoOpProcessor)]
-#[process(IntoTextProcessor)]
+
 struct Test;
 #[automatically_derived]
 impl ::core::fmt::Debug for Test {
@@ -169,28 +134,16 @@ impl ::core::fmt::Debug for Test {
     }
 }
 #[automatically_derived]
-impl ::bees::endpoint::EndpointProcessor<
-    <NoOpProcessor as ::bees::endpoint::Process>::ProcessOutput,
+impl ::bees::endpoint::SupportsOutput<
+    <NoOpProcess as ::bees::endpoint::Process>::ProcessOutput,
 > for Test {
-    type Process = NoOpProcessor;
-    fn refine(
-        proc_output: <Self::Process as Process>::ProcessOutput,
-        _: &Self::CallContext,
-    ) -> impl ::std::future::Future<Output = <Self::Process as Process>::ProcessOutput> {
-        ::std::future::ready(proc_output)
-    }
+    type Process = NoOpProcess;
 }
 #[automatically_derived]
-impl ::bees::endpoint::EndpointProcessor<
-    <IntoTextProcessor as ::bees::endpoint::Process>::ProcessOutput,
+impl ::bees::endpoint::SupportsOutput<
+    <IntoTextProcess as ::bees::endpoint::Process>::ProcessOutput,
 > for Test {
-    type Process = IntoTextProcessor;
-    fn refine(
-        proc_output: <Self::Process as Process>::ProcessOutput,
-        _: &Self::CallContext,
-    ) -> impl ::std::future::Future<Output = <Self::Process as Process>::ProcessOutput> {
-        ::std::future::ready(proc_output)
-    }
+    type Process = IntoTextProcess;
 }
 impl EndpointInfo for Test {
     type Record = TestRecord;
@@ -215,7 +168,7 @@ struct Thing<T>(
     T,
 )
 where
-    T: EndpointProcessor<Response>;
+    T: SupportsOutput<Response>;
 const _: () = {
     let t = Thing(Test);
 };

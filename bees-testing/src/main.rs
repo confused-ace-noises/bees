@@ -1,24 +1,23 @@
 use std::{future::ready, sync::Arc};
 
-use async_rate_limiter::RateLimiter;
 use bees::{
-    self, Endpoint, EndpointProcessor, Record, capability::Capability, endpoint::{self, EndpointInfo, EndpointProcessor, Process}, handler::{BaseHandler, Handler, Retries, RetriesWrapper, WrapDecorate}, net::{
-        Client, HttpVerb,
-        bodies::{Body, TextBody},
-    }, process, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}, record::Record
+    self, Endpoint, EndpointProcessor, Record, capability::Capability, endpoint::{EndpointInfo, Process, SupportsOutput}, handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate}, net::{
+        Client, HttpVerb, rate_limiter::RateLimiter,
+    }, process, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}
 };
 use reqwest::{Response, header::HeaderMap};
 use url::Url;
+pub mod expanded;
 
 #[tokio::main]
 async fn main() {
-    let client = Client::new(reqwest::Client::new(), RateLimiter::new(2));
+    let client = Client::new(reqwest::Client::new(), RateLimiter::new(2.0, 10));
 
     let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
 
     let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
 
-    let x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
+    let _x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
         .run::<String>()
         .await;
     
@@ -33,9 +32,9 @@ async fn main() {
 )]
 pub struct TestRecord;
 
-struct NoOpProcessor;
+struct NoOpProcess;
 
-impl Process for NoOpProcessor {
+impl Process for NoOpProcess {
     type ProcessOutput = Response;
 
     fn process(resp: Response) -> impl Future<Output = Self::ProcessOutput> {
@@ -54,7 +53,7 @@ impl Process for NoOpProcessor {
 // }
 
 #[process]
-async fn IntoTextProcessor(resp: Response) -> String {
+async fn IntoTextProcess(resp: Response) -> String {
     resp.text().await.unwrap()
 }
 
@@ -69,35 +68,28 @@ async fn IntoTextProcessor(resp: Response) -> String {
 //     }
 // }
 
-impl EndpointProcessor<u8> for Test {
-    type Process = IntoTextProcessor;
-
-    fn refine(
-        proc_output: <Self::Process as Process>::ProcessOutput,
-        _: &Self::CallContext,
-    ) -> impl Future<Output = u8> {
-        ready(proc_output.as_bytes()[0])
-    }
-}
+// impl SupportsOutput<String> for Test {
+//     type Process = IntoTextProcess;
+// }
 
 async fn url_func(url: Url) -> Url {
     url
 }
 
-#[derive(Debug, Endpoint)]
+#[derive(Debug, Endpoint, EndpointProcessor)]
 #[endpoint(
     record = TestRecord,
-    handler(BaseHandler, BaseHandler),
+    handler =  {let x = BaseHandler; x} -> BaseHandler,
     http_verb = HttpVerb::GET,
     path = "idk",
     modify_url = url_func,
-    processors(NoOpProcessor, IntoTextProcessor)
 )]
+#[process(NoOpProcess, IntoTextProcess)]
 struct Test2;
 
 #[derive(Debug, EndpointProcessor)]
-#[process(NoOpProcessor)]
-#[process(IntoTextProcessor)]
+#[process(NoOpProcess)]
+#[process(IntoTextProcess)]
 struct Test;
 impl EndpointInfo for Test {
     type Record = TestRecord;
@@ -124,7 +116,7 @@ impl EndpointInfo for Test {
     }
 }
 
-struct Thing<T>(T) where T: EndpointProcessor<Response>;
+struct Thing<T>(T) where T: SupportsOutput<Response>;
 const _: () = {
     let t = Thing(Test);
 };

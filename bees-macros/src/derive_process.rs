@@ -12,12 +12,8 @@ pub(crate) fn procs_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_mac
         let span = proc_path.span();
         quote_spanned! {span=> 
             #[automatically_derived]
-            impl ::bees::endpoint::EndpointProcessor<<#proc_path as ::bees::endpoint::Process>::ProcessOutput> for #ident {
+            impl ::bees::endpoint::SupportsOutput<<#proc_path as ::bees::endpoint::Process>::ProcessOutput> for #ident {
                 type Process = #proc_path;
-
-                fn refine(proc_output: <Self::Process as Process>::ProcessOutput, _: &Self::CallContext) -> impl ::std::future::Future<Output = <Self::Process as Process>::ProcessOutput> {
-                    ::std::future::ready(proc_output)
-                }
             }
         }
     });

@@ -3,6 +3,7 @@ use crate::{utils::error::Error};
 
 #[cfg(not(feature = "async-trait"))]
 use crate::CapabilityOutput;
+use crate::CapError;
 
 #[cfg(not(feature = "async-trait"))]
 pub trait Capability: Send + Sync {
@@ -13,7 +14,7 @@ pub trait Capability: Send + Sync {
 impl<T, Func, Fut> Capability for Func 
 where 
     Fut: Future<Output = T> + Send + Sync,
-    T: Into<Result<RequestBuilder, Error>>,
+    T: Into<Result<RequestBuilder, CapError>>,
     Func: Fn(RequestBuilder) -> Fut + Send + Sync,
 {
     fn apply<'a>(&'a self, request: RequestBuilder) -> CapabilityOutput<'a> {
@@ -24,7 +25,7 @@ where
 #[cfg(feature = "async-trait")]
 #[async_trait::async_trait]
 pub trait Capability: Send + Sync {
-    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, Error>;
+    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, CapError>;
 }
 
 #[cfg(feature = "async-trait")]
@@ -32,10 +33,10 @@ pub trait Capability: Send + Sync {
 impl<T, Func, Fut> Capability for Func 
 where 
     Fut: Future<Output = T> + Send + Sync,
-    T: Into<Result<RequestBuilder, Error>>,
+    T: Into<Result<RequestBuilder, CapError>>,
     Func: Fn(RequestBuilder) -> Fut + Send + Sync,
 {
-    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, Error> {
+    async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, CapError> {
         (self)(request).await.into()
     }
 }

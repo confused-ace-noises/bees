@@ -23,15 +23,18 @@ pub(crate) fn attr_process(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
 
     sig.ident = ident.clone();
 
-
     let name = &cloned_sig.ident;
-    let name_span = name.span();
+    // let name_span = name.span();
 
     let is_async = cloned_sig.asyncness.is_some();
 
-    let struct_ = quote_spanned! {name.span()=> #vis struct #name;};
+    // let struct_ = quote! {name.span()=> #vis struct #name;};
 
-    let struct_impl = quote_spanned! {name_span=> impl ::bees::endpoint::Process for #name};
+    // let struct_impl = quote! {name_span=> impl ::bees::endpoint::Process for #name};
+
+    let struct_ = quote! {#vis struct #name;};
+
+    let struct_impl = quote! {impl ::bees::endpoint::Process for #name};
 
     let output_type = quote_spanned! {output_span=> type ProcessOutput = #output; };
 

@@ -1,4 +1,4 @@
-use std::future::ready;
+use std::{ffi::CString, future::ready};
 
 use reqwest::Response;
 
@@ -28,9 +28,9 @@ pub struct JsonProcessor;
 
 #[cfg(feature = "reqwest-json")]
 impl Process for JsonProcessor {
-    type ProcessOutput = serde_json::Value;
+    type ProcessOutput = Result<serde_json::Value, serde_json::Error>;
 
     async fn process(resp: Response) -> Self::ProcessOutput {
-        serde_json::from_str(TextProcess::process(resp))
+        serde_json::from_str(&TextProcess::process(resp).await)
     }
 }

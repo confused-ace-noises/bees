@@ -1,6 +1,6 @@
-use deluxe::ParseAttributes;
+use deluxe::{ParseAttributes, ParseMetaItem};
 use quote::{quote, quote_spanned};
-use syn::spanned::Spanned;
+use syn::{Block, Token, Type, parse::ParseStream, spanned::Spanned};
 
 use crate::record::make_capabilities;
 
@@ -9,9 +9,9 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
         record,
         http_verb,
         capabilities,
-        processors,
+        // processors,
         path,
-        handler: (handler_type, handler_expr),
+        handler: HandlerSpec {block, output, ..},
         modify_url,
     } = EndpointAttributes::parse_attributes(&input)?;
 
@@ -42,11 +42,11 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
         }
     };
 
-    let handler_type_span = handler_type.span();
-    let handler_type_piece = quote_spanned! {handler_type_span=> type EndpointHandler = #handler_type; };
+    let handler_type_span = output.span();
+    let handler_type_piece = quote_spanned! {handler_type_span=> type EndpointHandler = #output; };
 
-    let handler_expr_span = handler_expr.span();
-    let handler_expr_piece = quote_spanned! {handler_expr_span=> fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler { #handler_expr } };
+    let handler_expr_span = output.span();
+    let handler_expr_piece = quote_spanned! {handler_expr_span=> fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler #block };
 
     let url_mod_fn_body = match modify_url {
         Some(url_mod_fn) => {
@@ -65,20 +65,20 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
         }
     };
 
-    let proc_impls = processors.into_iter().map(|proc_path| {
-        let span = proc_path.span();
-        quote_spanned! {span=> 
-            #[automatically_derived]
-            impl ::bees::endpoint::EndpointProcessor<<#proc_path as ::bees::endpoint::Process>::ProcessOutput> for #ident {
-                type Process = #proc_path;
+    // let proc_impls = processors.into_iter().map(|proc_path| {
+    //     let span = proc_path.span();
+    //     quote_spanned! {span=> 
+    //         #[automatically_derived]
+    //         impl ::bees::endpoint::EndpointProcessor<<#proc_path as ::bees::endpoint::Process>::ProcessOutput> for #ident {
+    //             type Process = #proc_path;
 
-                #[allow(clippy::manual_async_fn)]
-                fn refine(proc_output: <Self::Process as Process>::ProcessOutput, _: &Self::CallContext) -> impl ::std::future::Future<Output = <Self::Process as Process>::ProcessOutput> {
-                    ::std::future::ready(proc_output)
-                }
-            }
-        }
-    });
+    //             #[allow(clippy::manual_async_fn)]
+    //             fn refine(proc_output: <Self::Process as Process>::ProcessOutput, _: &Self::CallContext) -> impl ::std::future::Future<Output = <Self::Process as Process>::ProcessOutput> {
+    //                 ::std::future::ready(proc_output)
+    //             }
+    //         }
+    //     }
+    // });
 
     let result = quote! {
         #impl_piece {
@@ -95,21 +95,37 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
             #url_mod_fn
         }
 
-        #(#proc_impls)*
+        // #(#proc_impls)*
     };
 
     Ok(result)
 }
 
 #[derive(Debug, ParseAttributes)]
+#[deluxe(attributes(endpoint))]
 struct EndpointAttributes {
-    record: syn::Path,
+    record: syn::Type,
     http_verb: syn::Expr,
     #[deluxe(default = Vec::new())]
     capabilities: Vec<syn::Expr>,
-    #[deluxe(default = Vec::new())]
-    processors: Vec<syn::Path>,
     path: syn::LitStr,
-    handler: (syn::Expr, syn::Path),
-    modify_url: Option<syn::Path>,
+    handler: HandlerSpec,
+    modify_url: Option<syn::Type>,
+}
+
+#[derive(Debug)]
+struct HandlerSpec {
+    block: Block,
+    _arrow: Token![->],
+    output: Type,
+}
+
+impl ParseMetaItem for HandlerSpec {
+    fn parse_meta_item(input: ParseStream, _mode: deluxe::ParseMode) -> syn::Result<Self> {
+        let block = input.parse::<Block>()?;
+        let _arrow = input.parse::<syn::Token![->]>()?;
+        let output: syn::Type = input.parse()?;
+
+        Ok(Self { block, _arrow, output })
+    }
 }

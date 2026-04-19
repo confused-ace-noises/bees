@@ -1,3 +1,5 @@
+use std::{any::Any, error::Error as StdError, sync::Arc};
+use derive_more::{Error, Display, From};
 use super::error::Error;
 use crate::resource_manager;
 
@@ -85,7 +87,8 @@ impl FormatString {
         Self { parts }
     }
 
-    pub fn to_formatted_now(&self) -> impl Future<Output = Result<String, Error>> + Send {
+    #[allow(clippy::manual_async_fn)]
+    pub fn to_formatted_now(&self) -> impl Future<Output = Result<String, FormatStringError>> + Send {
         async move {
             let mut result = String::new();
 
@@ -96,11 +99,11 @@ impl FormatString {
                         // let resource = resource!(option resource_replace);
                         let binding = resource_manager()
                             .get(resource_replace.as_str())
-                            .ok_or(Error::NoResFound(resource_replace.clone()))?;
+                            .ok_or(FormatStringError::NoResFound(resource_replace.clone()))?;
 
                         let data = binding.data();
 
-                        let data = data.await;
+                        let data = data.await.map_err(FormatStringError::ResourceError)?;
 
                         result.push_str(&data.to_string());
                     }
@@ -122,6 +125,19 @@ impl FormatString {
     pub(crate) fn inner_vec_mut(&mut self) -> &mut Vec<FormattableStringPart> {
         &mut self.parts
     }
+}
+
+#[derive(Debug, Display, Error, From)]
+#[display("FormatStringError: {_variant}")]
+pub enum FormatStringError {
+    #[from(skip)]
+    #[error(ignore)]
+    #[display("The resource with identifier `{_0}` couldn't be found.")]
+    NoResFound(String),
+
+    #[display("Resource error: {_0:?}")]
+    #[error(ignore)]
+    ResourceError(Arc<dyn Any + Send + Sync>),
 }
 
 impl<S: Into<String>> From<S> for FormatString {

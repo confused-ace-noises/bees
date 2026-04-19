@@ -3,6 +3,7 @@ pub mod client;
 pub mod request;
 pub mod net_error;
 pub mod bodies;
+pub mod rate_limiter;
 
 pub use client::*;
 pub use request::*;

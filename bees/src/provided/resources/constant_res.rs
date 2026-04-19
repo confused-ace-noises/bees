@@ -1,6 +1,11 @@
-use std::{fmt::{Display, Debug}, future::ready, sync::Arc};
+use std::{any::Any, error::Error, fmt::{Debug, Display}, future::ready, sync::Arc};
 
-use crate::resources::resource::{Resource, ResourceOutput};
+use crate::resources::resource::Resource;
+
+#[cfg(feature = "async-trait")]
+use crate::resources::resource::{ResourceFuture, ResourceResult};
+#[cfg(not(feature = "async-trait"))]
+use crate::resources::resource::ResourceOutput;
 
 #[derive(Debug)]
 pub struct ConstRes<D> 
@@ -20,12 +25,25 @@ impl<D: Display + Debug + Send + 'static> ConstRes<D> {
     }
 }
 
+#[cfg(not(feature = "async-trait"))]
 impl<D: Display + Debug + Send + std::marker::Sync + 'static> Resource for ConstRes<D> {
     fn ident(&self) -> &str {
         &self.ident
     }
 
     fn data<'a>(&'a self) -> crate::resources::resource::ResourceOutput<'a> {
-        ResourceOutput::new(ready(Box::new(self.value.clone()) as Box<dyn Display + Send>))
+        ResourceOutput::new(ready(Ok::<_, Arc<dyn Any + Send + Sync>>(Box::new(self.value.clone()) as Box<dyn Display + Send>)))
+    }
+} 
+
+#[cfg(feature = "async-trait")]
+#[async_trait::async_trait]
+impl<D: Display + Debug + Send + std::marker::Sync + 'static> Resource for ConstRes<D> {
+    fn ident(&self) -> &str {
+        &self.ident
+    }
+
+    async fn data(&self) -> ResourceResult {
+        Ok::<_, Arc<dyn Any + Send + Sync>>(Box::new(self.value.clone()) as Box<dyn Display + Send>)
     }
 } 
