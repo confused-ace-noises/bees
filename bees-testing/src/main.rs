@@ -2,7 +2,7 @@ use std::{future::ready, sync::Arc};
 
 use bees::{
     self, Endpoint, EndpointProcessor, Record, capability::Capability, endpoint::{EndpointInfo, Process, SupportsOutput}, handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate}, net::{
-        Client, HttpVerb, rate_limiter::RateLimiter,
+        Client, HttpMethod, HttpVerb, rate_limiter::RateLimiter
     }, process, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}
 };
 use reqwest::{Response, header::HeaderMap};
@@ -57,21 +57,6 @@ async fn IntoTextProcess(resp: Response) -> String {
     resp.text().await.unwrap()
 }
 
-// impl EndpointProcessor<String> for Test {
-//     type Process = NoOpProcessor;
-
-//     async fn refine(
-//         proc_output: <Self::Process as Process>::ProcessOutput,
-//         call_context: &Self::CallContext,
-//     ) -> String {
-//         proc_output.text().await.unwrap()
-//     }
-// }
-
-// impl SupportsOutput<String> for Test {
-//     type Process = IntoTextProcess;
-// }
-
 async fn url_func(url: Url) -> Url {
     url
 }
@@ -80,7 +65,7 @@ async fn url_func(url: Url) -> Url {
 #[endpoint(
     record = TestRecord,
     handler =  {let x = BaseHandler; x} -> BaseHandler,
-    http_verb = HttpVerb::GET,
+    http_verb = HttpMethod::new_no_body(HttpVerb::GET),
     path = "idk",
     modify_url = url_func,
 )]
@@ -91,6 +76,7 @@ struct Test2;
 #[process(NoOpProcess)]
 #[process(IntoTextProcess)]
 struct Test;
+
 impl EndpointInfo for Test {
     type Record = TestRecord;
     type CallContext = UrlContext;
@@ -106,8 +92,8 @@ impl EndpointInfo for Test {
         BaseHandler.wrap(RetriesWrapper::<3>)
     }
 
-    async fn http_verb(_: &Self::CallContext) -> HttpVerb {
-        HttpVerb::GET
+    async fn http_verb(_: &Self::CallContext) -> HttpMethod {
+        HttpMethod::new_no_body(HttpVerb::GET)
     }
 
     async fn modify_url(mut url: Url, call: &Self::CallContext) -> Url {
@@ -115,11 +101,6 @@ impl EndpointInfo for Test {
         url
     }
 }
-
-struct Thing<T>(T) where T: SupportsOutput<Response>;
-const _: () = {
-    let t = Thing(Test);
-};
 
 struct UrlContext(Vec<(String, Option<String>)>);
 
@@ -135,3 +116,8 @@ impl UrlContext {
         }
     }
 }
+
+struct Thing<T>(T) where T: SupportsOutput<Response>;
+const _: () = {
+    let t = Thing(Test);
+};

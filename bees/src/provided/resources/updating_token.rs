@@ -12,7 +12,7 @@ use derive_more::From;
 use tokio::sync::RwLock;
 
 #[cfg(not(feature = "async-trait"))]
-use crate::resources::resource::Resource;
+use crate::resources::resource::ResourceOutput;
 
 use std::error::Error as StdError;
 
@@ -36,7 +36,7 @@ where
     endpoint: PhantomData<E>,
 }
 
-#[derive(From)]
+#[derive(From, Debug)]
 pub enum UpdatingTokenError<H: Handler> {
     TokenError(Arc<dyn Any + Send + Sync>),
     EndpointRunnerError(EndpointRunnerError<H>)

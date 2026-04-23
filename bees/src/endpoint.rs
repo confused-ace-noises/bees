@@ -9,7 +9,7 @@ use reqwest::Response;
 use url::Url;
 
 use super::net::net_error::NetError;
-use crate::utils::error::Error;
+use crate::{net::{Client, HttpMethod}, resources::resource_handler::ResourceManager, utils::error::Error};
 use crate::{
     capability::Capability,
     handler::Handler,
@@ -27,7 +27,7 @@ pub trait EndpointInfo: Send + Debug {
 
     fn capabilities(ctx: &Self::CallContext) -> Arc<[Box<dyn Capability>]>;
     fn endpoint_handler(ctx: &Self::CallContext) -> Self::EndpointHandler;
-    fn http_verb(ctx: &Self::CallContext) -> impl Future<Output = HttpVerb> + Send;
+    fn http_verb(ctx: &Self::CallContext) -> impl Future<Output = HttpMethod> + Send;
 
     #[allow(unused_variables)]
     fn modify_url(url: Url, ctx: &Self::CallContext) -> impl Future<Output = Url> + Send {
@@ -36,21 +36,22 @@ pub trait EndpointInfo: Send + Debug {
 }
 
 pub trait EndpointExt: EndpointInfo {
-    fn parsed_path() -> &'static FormatString;
+    fn parsed_path(client: &Arc<ResourceManager>) -> &'static FormatString;
     fn record_capabilities() -> Arc<[Box<dyn Capability>]>;
     fn full_url(
+        res_manager: &Arc<ResourceManager>, 
         ctx: &<Self as EndpointInfo>::CallContext,
     ) -> impl Future<Output = Result<Url, Error>> + Send;
 }
 
 impl<E: EndpointInfo> EndpointExt for E {
-    fn parsed_path() -> &'static FormatString {
+    fn parsed_path(res_manager: &Arc<ResourceManager>) -> &'static FormatString {
         static PARSED: OnceLock<FormatString> = OnceLock::new();
-        PARSED.get_or_init(|| FormatString::new(E::PATH))
+        PARSED.get_or_init(|| FormatString::new_res_manager(res_manager, E::PATH))
     }
 
-    async fn full_url(ctx: &<Self as EndpointInfo>::CallContext) -> Result<Url, Error> {
-        let parsed = Self::parsed_path();
+    async fn full_url(res_manager: &Arc<ResourceManager>, ctx: &<Self as EndpointInfo>::CallContext) -> Result<Url, Error> {
+        let parsed = Self::parsed_path(res_manager);
         let formatted = &parsed.to_formatted_now().await?;
         Ok(Self::modify_url(
             Url::from_str(formatted).map_err(NetError::NotAValidUrl)?,
@@ -112,8 +113,8 @@ mod test {
             BaseHandler.wrap(RetriesWrapper::<3>)
         }
 
-        async fn http_verb(_: &Self::CallContext) -> HttpVerb {
-            HttpVerb::GET
+        async fn http_verb(_: &Self::CallContext) -> HttpMethod {
+            HttpMethod::new_no_body(HttpVerb::GET)
         }
 
         async fn modify_url(mut url: Url, ctx: &Self::CallContext) -> Url {

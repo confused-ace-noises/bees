@@ -1,6 +1,6 @@
 #[cfg(not(feature = "async-trait"))]
-use crate::CapabilityOutput;
-use crate::{CapError, capability::Capability, net::RequestBuilder, utils::format_string::FormatString};
+use crate::capability::CapabilityOutput;
+use crate::{capability::CapError, capability::Capability, net::RequestBuilder, utils::format_string::FormatString};
 use std::fmt::Debug;
 use crate::utils::error::Error;
 
@@ -62,6 +62,7 @@ impl Capability for JsonBody {
                 .to_formatted_now()
                 .await
                 .map(|j| request.body(j))
+                .map_err(|e| Box::new(e) as CapError)
         })
     }
 }
@@ -70,7 +71,7 @@ impl Capability for JsonBody {
 #[async_trait::async_trait]
 impl Capability for JsonBody {
     async fn apply(&self, request: RequestBuilder) -> Result<RequestBuilder, CapError> {
-        FormatString::new(self.0.to_string())
+        FormatString::new(&request.client, self.0.to_string())
             .to_formatted_now()
             .await
             .map(|j| request.body(j))

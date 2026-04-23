@@ -1,6 +1,6 @@
 use derive_more::{Display, Error, From};
 
-use crate::{CapError, net::net_error::NetError, utils::format_string::FormatStringError};
+use crate::{capability::CapError, net::net_error::NetError, utils::format_string::FormatStringError};
 use std::error::Error as StdError;
 
 #[derive(Debug, Display, Error, From)]

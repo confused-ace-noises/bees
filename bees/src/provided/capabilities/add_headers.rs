@@ -8,23 +8,21 @@ use http::{HeaderMap, HeaderName, HeaderValue};
 #[cfg(not(feature = "async-trait"))]
 use crate::capability::CapabilityOutput;
 
-use crate::{CapError, capability::Capability, utils::error::Error};
+use crate::{capability::CapError, capability::Capability, utils::error::Error};
 
 pub struct AddHeaderMap(pub HeaderMap);
 
 
 
-#[cfg(not(feature = "async-trait"))]
+#[cfg_attr(feature = "async-trait", async_trait::async_trait)]
 impl Capability for AddHeaderMap {
-    fn apply<'a>(&'a self, mut request: crate::net::RequestBuilder) -> crate::CapabilityOutput<'a> {
+    #[cfg(not(feature = "async-trait"))]
+    fn apply<'a>(&'a self, mut request: crate::net::RequestBuilder) -> CapabilityOutput<'a> {
         request = request.headers(self.0.clone());
         CapabilityOutput::new(ready(Ok(request)))
     }
-}
 
-#[cfg(feature = "async-trait")]
-#[async_trait::async_trait]
-impl Capability for AddHeaderMap {
+    #[cfg(feature = "async-trait")]
     async fn apply(&self, mut request: crate::net::RequestBuilder) -> Result<crate::net::RequestBuilder, CapError> {
         request = request.headers(self.0.clone());
         Ok(request)
@@ -59,18 +57,22 @@ impl AddHeaders {
     }
 }
 
-#[cfg(not(feature = "async-trait"))]
+#[cfg_attr(feature = "async-trait", async_trait::async_trait)]
 impl Capability for AddHeaders {
-    fn apply<'a>(&'a self, mut request: crate::net::RequestBuilder) -> crate::CapabilityOutput<'a> {
-        request = request.headers(self.make_header_map()?);
-
-        CapabilityOutput::new(ready(Ok(request)))
+    #[cfg(not(feature = "async-trait"))]
+    fn apply<'a>(&'a self, mut request: crate::net::RequestBuilder) -> CapabilityOutput<'a> {
+        match self.make_header_map() {
+            Ok(map) => {
+                request = request.headers(map);
+                CapabilityOutput::new(ready(Ok(request)))
+            },
+            Err(err) => {
+                CapabilityOutput::new(ready(Err(err)))
+            },
+        }
     }
-}
 
-#[cfg(feature = "async-trait")]
-#[async_trait::async_trait]
-impl Capability for AddHeaders {
+    #[cfg(feature = "async-trait")]
     async fn apply(&self, mut request: crate::net::RequestBuilder) -> Result<crate::net::RequestBuilder, CapError> {
         request = request.headers(self.make_header_map()?);
 

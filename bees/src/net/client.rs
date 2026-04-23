@@ -1,7 +1,7 @@
 use crate::{
     endpoint::{EndpointExt, EndpointInfo, Process, SupportsOutput},
     handler::{Handler, HandlerWrapper, WrapDecorate},
-    net::{bodies::Body, net_error::NetError, rate_limiter::RateLimiter}
+    net::{bodies::Body, net_error::NetError, rate_limiter::RateLimiter}, resources::resource_handler::ResourceManager
 };
 use derive_more::{Display, Error, From};
 use futures::future::join;
@@ -20,6 +20,7 @@ use crate::utils::error::Error;
 pub struct Client {
     inner: Arc<ReqClient>,
     rate_limiter: Arc<RateLimiter>,
+    pub resource_manager: Arc<ResourceManager>,
 }
 
 // impl fmt::Debug for Client {
@@ -33,7 +34,7 @@ pub struct Client {
 
 impl Client {
     pub fn new(reqwest_client: ReqClient, rate_limiter: RateLimiter) -> Self {
-        Self::__new(reqwest_client, Arc::new(rate_limiter))
+        Self::__new(reqwest_client, Arc::new(rate_limiter), ResourceManager::new())
     }
 
     pub(crate) fn _new(rate_limiter: Arc<RateLimiter>) -> Self {
@@ -45,13 +46,15 @@ impl Client {
             //     .unwrap(),
             ReqClient::new(),
             rate_limiter,
+            ResourceManager::new()
         )
     }
 
-    pub(crate) fn __new(client: ReqClient, rate_limiter: Arc<RateLimiter>) -> Self {
+    pub(crate) fn __new(client: ReqClient, rate_limiter: Arc<RateLimiter>, res_manager: ResourceManager) -> Self {
         Self {
             inner: Arc::new(client),
             rate_limiter,
+            resource_manager: Arc::new(res_manager),
         }
     }
 
@@ -127,21 +130,27 @@ impl Client {
 
         // determine whether this makes sense, does it give enough of a speed boost to 
         // justify not guaranteeing order of operations?
-        let (url, verb) = join(E::full_url(call_context), E::http_verb(call_context)).await;
+        let (url, method) = join(E::full_url(&self.resource_manager, call_context), E::http_verb(call_context)).await;
 
         let url = url?;
 
-        let request = self.get_raw_request_builder(verb.as_method(), url);
-        let mut request = match verb {
-            HttpVerb::GET | HttpVerb::DELETE(Option::None) | HttpVerb::OPTIONS | HttpVerb::HEAD => {
-                request
-            }
-
-            HttpVerb::POST(body)
-            | HttpVerb::PUT(body)
-            | HttpVerb::PATCH(body)
-            | HttpVerb::DELETE(Some(body)) => body.add_body(request).await?,
+        let request = self.get_raw_request_builder(method.verb.as_reqwest_method(), url);
+        
+        let mut request = match method.body {
+            Some(body) => body.add_body(request).await?,
+            None => request,
         };
+        
+        // let mut request = match verb {
+        //     HttpVerb::GET | HttpVerb::DELETE(Option::None) | HttpVerb::OPTIONS | HttpVerb::HEAD => {
+        //         request
+        //     }
+
+        //     HttpVerb::POST(body)
+        //     | HttpVerb::PUT(body)
+        //     | HttpVerb::PATCH(body)
+        //     | HttpVerb::DELETE(Some(body)) => body.add_body(request).await?,
+        // };
 
         let endpoint_caps = E::capabilities(call_context);
         let record_caps = E::record_capabilities();
@@ -314,21 +323,41 @@ pub enum EndpointRunnerError<H: Handler> {
 #[derive(Debug)]
 pub enum HttpVerb {
     GET,
-    POST(Body),
-    PUT(Body),
-    DELETE(Option<Body>),
-    PATCH(Body),
+    POST,
+    PUT,
+    DELETE,
+    PATCH,
     OPTIONS,
     HEAD,
 }
+
+pub struct HttpMethod {
+    pub verb: HttpVerb,
+    pub body: Option<Body>,
+}
+
+impl HttpMethod {
+    pub fn new(verb: HttpVerb, body: Option<Body>) -> Self {
+        Self {
+            verb, 
+            body
+        }
+    }
+
+    pub fn new_no_body(verb: HttpVerb) -> Self {
+        Self { verb, body: None }
+    }
+}
+
+
 impl HttpVerb {
-    pub fn as_method(&self) -> Method {
+    pub fn as_reqwest_method(&self) -> Method {
         match self {
             HttpVerb::GET => Method::GET,
-            HttpVerb::POST(_) => Method::POST,
-            HttpVerb::PUT(_) => Method::PUT,
-            HttpVerb::DELETE(_) => Method::DELETE,
-            HttpVerb::PATCH(_) => Method::PATCH,
+            HttpVerb::POST => Method::POST,
+            HttpVerb::PUT => Method::PUT,
+            HttpVerb::DELETE => Method::DELETE,
+            HttpVerb::PATCH => Method::PATCH,
             HttpVerb::OPTIONS => Method::OPTIONS,
             HttpVerb::HEAD => Method::HEAD,
         }

@@ -1,9 +1,41 @@
+#[cfg(not(feature = "async-trait"))]
+use futures::future::ready;
+
 use crate::net::request::RequestBuilder;
 use crate::{utils::error::Error};
+use std::error::Error as StdError;
 
 #[cfg(not(feature = "async-trait"))]
-use crate::CapabilityOutput;
-use crate::CapError;
+use std::pin::Pin;
+
+pub type CapError = Box<dyn StdError + Send>;
+
+#[cfg(not(feature = "async-trait"))]
+pub struct CapabilityOutput<'a>(pub Pin<Box<dyn Future<Output = Result<RequestBuilder, CapError>> + Send + 'a>>);
+
+#[cfg(not(feature = "async-trait"))]
+impl<'a> CapabilityOutput<'a> {
+    pub fn new(fut: impl Future<Output = Result<RequestBuilder, CapError>> + Send + 'a) -> Self {
+        Self(Box::pin(fut))
+    }
+}
+
+#[cfg(not(feature = "async-trait"))]
+impl<'a> Future for CapabilityOutput<'a> {
+    type Output = Result<RequestBuilder, CapError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        self.0.as_mut().poll(cx)
+    }
+}
+
+#[cfg(not(feature = "async-trait"))]
+impl<'a> From<Result<RequestBuilder, CapError>> for CapabilityOutput<'a> {
+    fn from(value: Result<RequestBuilder, CapError>) -> Self {
+        Self(Box::pin(ready(value)))
+    }
+}
+
 
 #[cfg(not(feature = "async-trait"))]
 pub trait Capability: Send + Sync {

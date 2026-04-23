@@ -1,7 +1,6 @@
-use std::{mem::ManuallyDrop, pin::Pin, sync::LazyLock};
+use std::sync::LazyLock;
 
-use crate::{net::RequestBuilder, resources::resource_handler::ResourceManager, utils::error::Error};
-use std::error::Error as StdError;
+use crate::resources::resource_handler::ResourceManager;
 pub mod endpoint;
 pub mod record;
 pub mod capability;
@@ -11,34 +10,13 @@ pub mod utils;
 pub mod resources;
 pub mod provided;
 
-pub static RESOURCE_MANAGER: LazyLock<ResourceManager> = LazyLock::new(|| {
-    ResourceManager::new()
-});
+// pub static RESOURCE_MANAGER: LazyLock<ResourceManager> = LazyLock::new(|| {
+//     ResourceManager::new()
+// });
 
-pub fn resource_manager() -> &'static ResourceManager {
-    &RESOURCE_MANAGER
-}
-
-pub type CapError = Box<dyn StdError + Send>;
-
-#[cfg(not(feature = "async-trait"))]
-pub struct CapabilityOutput<'a>(pub Pin<Box<dyn Future<Output = Result<RequestBuilder, CapError>> + Send + 'a>>);
-
-#[cfg(not(feature = "async-trait"))]
-impl<'a> CapabilityOutput<'a> {
-    pub fn new(fut: impl Future<Output = Result<RequestBuilder, CapError>> + Send + 'a) -> Self {
-        Self(Box::pin(fut))
-    }
-}
-
-#[cfg(not(feature = "async-trait"))]
-impl<'a> Future for CapabilityOutput<'a> {
-    type Output = Result<RequestBuilder, CapError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        self.0.as_mut().poll(cx)
-    }
-}
+// pub fn resource_manager() -> &'static ResourceManager {
+//     &RESOURCE_MANAGER
+// }
 
 // half impl of a proc macro i'll make sometime
 #[allow(unused)]

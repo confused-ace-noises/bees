@@ -31,7 +31,7 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
     let http_verb_span = http_verb.span();
     let http_verb_piece = quote_spanned! {http_verb_span=> 
         #[allow(clippy::manual_async_fn)]
-        fn http_verb(_: &Self::CallContext) -> impl Future<Output = HttpVerb> + Send { async move { #http_verb } } 
+        fn http_verb(_: &Self::CallContext) -> impl Future<Output = HttpMethod> + Send { async move { #http_verb } } 
     };
 
     let capability_pieces = make_capabilities(capabilities);

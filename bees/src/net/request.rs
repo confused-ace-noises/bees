@@ -1,5 +1,5 @@
 use core::fmt;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use delegate::delegate;
 use http::{HeaderName, HeaderValue};
@@ -7,7 +7,7 @@ use reqwest::Response;
 
 use crate::{
     handler::{BaseHandler, Handler, HandlerWrapper, WrapDecorate},
-    net::{Client, net_error::NetError},
+    net::{Client, net_error::NetError}, resources::resource_handler::ResourceManager,
 };
 
 pub struct RequestRunner<H: Handler> {
@@ -50,6 +50,10 @@ impl fmt::Debug for RequestBuilder {
 }
 
 impl RequestBuilder {
+    pub fn resource_manager(&self) -> Arc<ResourceManager> {
+        self.client.resource_manager.clone()
+    }
+
     delegate! {
         to self.inner {
             #[expr(Self { inner: $, client: self.client })]

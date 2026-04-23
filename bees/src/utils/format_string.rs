@@ -1,16 +1,30 @@
-use std::{any::Any, error::Error as StdError, sync::Arc};
+use std::{any::Any, error::Error as StdError, sync::{Arc, Weak}};
 use derive_more::{Error, Display, From};
+use crate::{net::Client, resources::resource_handler::ResourceManager};
+
 use super::error::Error;
-use crate::resource_manager;
 
 #[derive(Debug, Clone)]
 pub struct FormatString {
     parts: Vec<FormattableStringPart>,
+    // an alive FormatString shouldn't keep a ResourceManager from a Client alive,
+    // because when the Client dies so should its ResourceManager
+    resource_manager: Weak<ResourceManager>
 }
 
 impl FormatString {
-    /// TODO: make the macro
-    pub fn new(raw: impl AsRef<str>) -> Self {
+    pub fn new(client: &Client, raw: impl AsRef<str>) -> Self {
+        Self::from_parts(client, Self::make_parts(raw))
+    }
+
+    pub fn new_res_manager(res_manager: &Arc<ResourceManager>, raw: impl AsRef<str>) -> Self {
+        Self {
+            parts: Self::make_parts(raw),
+            resource_manager: Arc::downgrade(res_manager)
+        }
+    }
+
+    fn make_parts(raw: impl AsRef<str>) -> Vec<FormattableStringPart> {
         let raw = raw.as_ref();
         let mut chars = raw.chars().peekable();
         let mut raw_sting_buffer = String::new();
@@ -80,11 +94,14 @@ impl FormatString {
             parts.push(FormattableStringPart::Raw(raw_sting_buffer));
         }
 
-        Self { parts }
+        parts
     }
 
-    pub fn from_parts(parts: Vec<FormattableStringPart>) -> Self {
-        Self { parts }
+    pub fn from_parts(client: &Client, parts: Vec<FormattableStringPart>) -> Self {
+        Self {
+            parts,
+            resource_manager: Arc::downgrade(&client.resource_manager)
+        }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -96,8 +113,8 @@ impl FormatString {
                 match part {
                     FormattableStringPart::Raw(raw) => result.push_str(raw),
                     FormattableStringPart::ResourceReplace(resource_replace) => {
-                        // let resource = resource!(option resource_replace);
-                        let binding = resource_manager()
+                        let upgrade_weak = self.resource_manager.upgrade().ok_or(FormatStringError::ClientGotDropped)?;
+                        let binding = upgrade_weak
                             .get(resource_replace.as_str())
                             .ok_or(FormatStringError::NoResFound(resource_replace.clone()))?;
 
@@ -138,13 +155,10 @@ pub enum FormatStringError {
     #[display("Resource error: {_0:?}")]
     #[error(ignore)]
     ResourceError(Arc<dyn Any + Send + Sync>),
-}
 
-impl<S: Into<String>> From<S> for FormatString {
-    fn from(value: S) -> Self {
-        let string = value.into();
-        Self::new(string)
-    }
+    #[display("The client this FormattableString refers to got dropped.")]
+    #[from(skip)]
+    ClientGotDropped,
 }
 
 #[derive(Debug, Clone)]

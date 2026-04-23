@@ -1,44 +1,37 @@
-#![feature(prelude_import)]
-#[macro_use]
-// extern crate std;
-// #[prelude_import]
 use std::prelude::rust_2024::*;
 use std::{future::ready, sync::Arc};
 use bees::{
     self, Endpoint, EndpointProcessor, Record, capability::Capability,
-    endpoint::{EndpointInfo, SupportsOutput, Process},
+    endpoint::{EndpointInfo, Process, SupportsOutput},
     handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate},
-    net::{Client, HttpVerb},
+    net::{Client, HttpMethod, HttpVerb, rate_limiter::RateLimiter},
     process, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders},
 };
 use reqwest::{Response, header::HeaderMap};
 use url::Url;
-// fn main() {
-//     // let body = async {
-//     //     let client = Client::new(reqwest::Client::new(), RateLimiter::new(2));
-//     //     let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
-//     //     let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
-//     //     let _x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
-//     //         .run::<String>()
-//     //         .await;
-//     //     {
-//     //         ::std::io::_print(format_args!("{0:?}\n", client));
-//     //     }
-//     // };
-//     #[allow(
-//         clippy::expect_used,
-//         clippy::diverging_sub_expression,
-//         clippy::needless_return,
-//         clippy::unwrap_in_result
-//     )]
-//     {
-//         return tokio::runtime::Builder::new_multi_thread()
-//             .enable_all()
-//             .build()
-//             .expect("Failed building the Runtime")
-//             .block_on(body);
-//     }
-// }
+pub mod expanded {}
+fn main() {
+    let body = async {
+        let client = Client::new(reqwest::Client::new(), RateLimiter::new(2.0, 10));
+        let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
+        let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
+       
+    };
+    #[allow(
+        clippy::expect_used,
+        clippy::diverging_sub_expression,
+        clippy::needless_return,
+        clippy::unwrap_in_result
+    )]
+    {
+        return tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(body);
+    }
+}
+
 
 pub struct TestRecord;
 #[automatically_derived]
@@ -77,7 +70,9 @@ async fn url_func(url: Url) -> Url {
     url
 }
 
+
 struct Test2;
+
 #[automatically_derived]
 impl ::core::fmt::Debug for Test2 {
     #[inline]
@@ -92,8 +87,8 @@ impl ::bees::endpoint::EndpointInfo for Test2 {
     type Record = TestRecord;
     type CallContext = ();
     #[allow(clippy::manual_async_fn)]
-    fn http_verb(_: &Self::CallContext) -> impl Future<Output = HttpVerb> + Send {
-        async move { HttpVerb::GET }
+    fn http_verb(_: &Self::CallContext) -> impl Future<Output = HttpMethod> + Send {
+        async move { HttpMethod::new_no_body(HttpVerb::GET) }
     }
     fn capabilities(_: &Self::CallContext) -> Arc<[Box<dyn Capability>]> {
         ::std::sync::Arc::new([])
@@ -124,6 +119,7 @@ impl ::bees::endpoint::SupportsOutput<
 > for Test2 {
     type Process = IntoTextProcess;
 }
+
 
 struct Test;
 #[automatically_derived]
@@ -156,22 +152,14 @@ impl EndpointInfo for Test {
     fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler {
         BaseHandler.wrap(RetriesWrapper::<3>)
     }
-    async fn http_verb(_: &Self::CallContext) -> HttpVerb {
-        HttpVerb::GET
+    async fn http_verb(_: &Self::CallContext) -> HttpMethod {
+        HttpMethod::new_no_body(HttpVerb::GET)
     }
     async fn modify_url(mut url: Url, call: &Self::CallContext) -> Url {
         call.append_to_url(&mut url);
         url
     }
 }
-struct Thing<T>(
-    T,
-)
-where
-    T: SupportsOutput<Response>;
-const _: () = {
-    let t = Thing(Test);
-};
 struct UrlContext(Vec<(String, Option<String>)>);
 impl UrlContext {
     pub fn append_to_url(&self, url: &mut Url) {
@@ -185,3 +173,11 @@ impl UrlContext {
         }
     }
 }
+struct Thing<T>(
+    T,
+)
+where
+    T: SupportsOutput<Response>;
+const _: () = {
+    let t = Thing(Test);
+};
