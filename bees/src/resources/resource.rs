@@ -44,7 +44,7 @@ pub trait Resource: Debug + Send + Sync {
 
 #[cfg(feature = "async-trait")]
 #[async_trait::async_trait]
-pub trait Resource: Any + Debug + Send + Sync {
+pub trait Resource: Debug + Send + Sync {
     fn ident(&self) -> &str;
     async fn data(&self) -> ResourceResult;
 }
