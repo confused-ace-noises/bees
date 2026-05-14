@@ -29,6 +29,13 @@ impl<'a> Future for ResourceOutput<'a> {
     }
 }
 
+pub trait AsAny: Sized {
+    fn as_any<'a>(&'a self) -> &'a (dyn Any + 'a) { self }
+    fn as_any_mut<'a>(&'a mut self) -> &'a mut (dyn Any + 'a) { self }
+}
+
+impl<T> AsAny for T {}
+
 #[cfg(not(feature = "async-trait"))]
 pub trait Resource: Debug + Send + Sync {
     fn ident(&self) -> &str;
@@ -37,7 +44,7 @@ pub trait Resource: Debug + Send + Sync {
 
 #[cfg(feature = "async-trait")]
 #[async_trait::async_trait]
-pub trait Resource: Debug + Send + Sync {
+pub trait Resource: Any + Debug + Send + Sync {
     fn ident(&self) -> &str;
     async fn data(&self) -> ResourceResult;
 }

@@ -1,3 +1,4 @@
+use crate::resources::resource::AsAny;
 #[cfg(feature = "async-trait")]
 use crate::resources::resource::ResourceResult;
 
@@ -5,58 +6,66 @@ use crate::resources::resource::ResourceResult;
 use super::resource::ResourceOutput;
 
 use super::resource::Resource;
+use std::any::Any;
+use std::borrow::Borrow;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use std::hash::Hash;
-use std::borrow::Borrow;
 
-
-#[derive(Debug)]
-pub struct DynResource(pub Arc<dyn Resource + 'static>);
+#[derive(Debug, Clone)]
+pub struct DynResource {
+    pub inner: Arc<dyn Resource + 'static>,
+    pub(crate) any: Arc<dyn Any + Send + Sync + 'static>,
+}
 
 impl DynResource {
     pub fn from_res<R: Resource + 'static>(resource: R) -> Self {
-        DynResource(Arc::new(resource) as Arc<dyn Resource>)
+        Self::from_res_arc(Arc::new(resource))
+    }
+
+    pub fn from_res_arc<R: Resource + 'static>(arc: Arc<R>) -> Self {
+        DynResource {
+            any: arc.clone(),
+            inner: arc as Arc<dyn Resource>,
+        }
+    }
+
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        self.any.downcast_ref::<T>()
     }
 }
 
-impl Eq for DynResource{}
+impl Eq for DynResource {}
 impl PartialEq for DynResource {
     fn eq(&self, other: &Self) -> bool {
-        self.0.ident() == other.0.ident()
+        self.inner.ident() == other.inner.ident()
     }
 }
 
-impl<R> From<Arc<R>> for DynResource 
+impl<R> From<Arc<R>> for DynResource
 where
     R: Resource + 'static,
 {
     fn from(value: Arc<R>) -> Self {
-        DynResource(value)
+        Self::from_res_arc(value)
     }
 }
 
 impl Hash for DynResource {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.ident().hash(state);
-    }
-}
-
-impl Clone for DynResource {
-    fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
+        self.inner.ident().hash(state);
     }
 }
 
 #[cfg(not(feature = "async-trait"))]
 impl Resource for DynResource {
     fn ident(&self) -> &str {
-        self.0.ident()
+        self.inner.ident()
     }
 
     fn data<'a>(&'a self) -> ResourceOutput<'a> {
-        ResourceOutput::new(self.0.data())
+        ResourceOutput::new(self.inner.data())
     }
 }
 
@@ -64,25 +73,25 @@ impl Resource for DynResource {
 #[async_trait::async_trait]
 impl Resource for DynResource {
     fn ident(&self) -> &str {
-        self.0.ident()
+        self.inner.ident()
     }
 
     async fn data(&self) -> ResourceResult {
-        self.0.data().await
+        self.inner.data().await
     }
 }
 
 impl Deref for DynResource {
     type Target = Arc<dyn Resource>;
-    
+
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.inner
     }
 }
 
 impl DerefMut for DynResource {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.inner
     }
 }
 
@@ -91,9 +100,3 @@ impl Borrow<str> for DynResource {
         self.ident()
     }
 }
-
-// impl Borrow<String> for DynResource {
-//     fn borrow(&self) -> &String {
-//         self.0.ident().to_string()
-//     }
-// }

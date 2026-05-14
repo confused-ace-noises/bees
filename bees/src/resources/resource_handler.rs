@@ -12,10 +12,10 @@ impl ResourceManager {
         Self(DashSet::new())
     }
 
-    #[inline]
-    pub fn add_dyn_resource(&self, resource: Arc<dyn Resource>) -> bool {
-        self.0.insert(DynResource(resource))
-    }
+    // #[inline]
+    // pub fn add_dyn_resource(&self, resource: Arc<dyn Resource>) -> bool {
+    //     self.0.insert(DynResource(resource))
+    // }
     
     #[inline]
     pub fn add_resource<T: Resource + 'static>(&self, resource: T) -> bool {
