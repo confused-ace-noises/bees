@@ -8,42 +8,54 @@ use crate::resources::resource::{ResourceFuture, ResourceResult};
 use crate::resources::resource::ResourceOutput;
 
 #[derive(Debug)]
-pub struct ConstRes<D> 
-where
-    D: Display + Debug + Send + 'static
-{
+pub struct ConstRes {
     ident: String,
-    value: Arc<D>,
+    value: Arc<String>,
 }
 
-impl<D: Display + Debug + Send + 'static> ConstRes<D> {
-    pub fn new(ident: impl AsRef<str>, value: D) -> Self {
+impl ConstRes {
+    pub fn new(ident: impl AsRef<str>, value: impl AsRef<str>) -> Self {
         Self {
             ident: ident.as_ref().to_string(),
-            value: Arc::new(value),
+            value: Arc::new(value.as_ref().to_string()),
         }
     }
+
+    pub fn new_arc(ident: impl AsRef<str>, value: Arc<String>) -> Self {
+        Self {
+            ident: ident.as_ref().to_string(),
+            value
+        }
+    }
+
+    pub fn ident(&self) -> &String {
+        &self.ident
+    }
+
+    pub fn value(&self) -> Arc<String> {
+        self.value.clone()
+    } 
 }
 
 #[cfg(not(feature = "async-trait"))]
-impl<D: Display + Debug + Send + std::marker::Sync + 'static> Resource for ConstRes<D> {
+impl Resource for ConstRes {
     fn ident(&self) -> &str {
         &self.ident
     }
 
     fn data<'a>(&'a self) -> crate::resources::resource::ResourceOutput<'a> {
-        ResourceOutput::new(ready(Ok::<_, Arc<dyn Any + Send + Sync>>(Box::new(self.value.clone()) as Box<dyn Display + Send>)))
+        ResourceOutput::new(ready(Ok::<_, Arc<dyn Any + Send + Sync>>(self.value.clone())))
     }
 } 
 
 #[cfg(feature = "async-trait")]
 #[async_trait::async_trait]
-impl<D: Display + Debug + Send + std::marker::Sync + 'static> Resource for ConstRes<D> {
+impl Resource for ConstRes {
     fn ident(&self) -> &str {
         &self.ident
     }
 
     async fn data(&self) -> ResourceResult {
-        Ok::<_, Arc<dyn Any + Send + Sync>>(Box::new(self.value.clone()) as Box<dyn Display + Send>)
+        Ok::<_, Arc<dyn Any + Send + Sync>>(self.value.clone())
     }
 } 

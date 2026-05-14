@@ -15,7 +15,7 @@ use crate::{
     handler::Handler,
     net::HttpVerb,
     record::Record,
-    utils::format_string::FormatString,
+    utils::resource_string::ResourceString,
 };
 
 pub trait EndpointInfo: Send + Debug {
@@ -36,7 +36,7 @@ pub trait EndpointInfo: Send + Debug {
 }
 
 pub trait EndpointExt: EndpointInfo {
-    fn parsed_path(client: &Arc<ResourceManager>) -> &'static FormatString;
+    fn parsed_path(client: &Arc<ResourceManager>) -> &'static ResourceString;
     fn record_capabilities() -> Arc<[Box<dyn Capability>]>;
     fn full_url(
         res_manager: &Arc<ResourceManager>, 
@@ -45,9 +45,9 @@ pub trait EndpointExt: EndpointInfo {
 }
 
 impl<E: EndpointInfo> EndpointExt for E {
-    fn parsed_path(res_manager: &Arc<ResourceManager>) -> &'static FormatString {
-        static PARSED: OnceLock<FormatString> = OnceLock::new();
-        PARSED.get_or_init(|| FormatString::new_res_manager(res_manager, E::PATH))
+    fn parsed_path(res_manager: &Arc<ResourceManager>) -> &'static ResourceString {
+        static PARSED: OnceLock<ResourceString> = OnceLock::new();
+        PARSED.get_or_init(|| ResourceString::new_res_manager(res_manager, E::PATH))
     }
 
     async fn full_url(res_manager: &Arc<ResourceManager>, ctx: &<Self as EndpointInfo>::CallContext) -> Result<Url, Error> {

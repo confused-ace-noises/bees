@@ -56,6 +56,7 @@ impl Process for NoOpProcess {
 struct IntoTextProcess;
 impl ::bees::endpoint::Process for IntoTextProcess {
     type ProcessOutput = String;
+    #[allow(non_snake_case)]
     fn process(
         _IntoTextProcess__: Response,
     ) -> impl Future<Output = Self::ProcessOutput> + Send {
@@ -94,8 +95,7 @@ impl ::bees::endpoint::EndpointInfo for Test2 {
         ::std::sync::Arc::new([])
     }
     fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler {
-        let x = BaseHandler;
-        x
+        BaseHandler
     }
     #[allow(clippy::manual_async_fn)]
     fn modify_url(

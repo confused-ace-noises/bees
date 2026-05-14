@@ -123,12 +123,12 @@ where
 
         let read_value = self.value.read().await;
 
-        Ok(Box::new(read_value.clone()))
+        Ok(read_value.0.clone())
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Token(pub String);
+pub struct Token(pub Arc<String>);
 
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

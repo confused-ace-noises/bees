@@ -4,7 +4,8 @@ use std::{any::Any, sync::Arc};
 #[cfg(not(feature = "async-trait"))]
 use std::pin::Pin;
 
-pub type ResourceReadable = Box<dyn Display + Send + 'static>;
+// maybe this should be Box<dyn Display + Send + 'static>?
+pub type ResourceReadable = Arc<String>;
 pub type ResourceError = Arc<dyn Any + Send + Sync + 'static>;
 pub type ResourceResult = Result<ResourceReadable, ResourceError>;
 pub type ResourceFuture<'a> = dyn Future<Output = ResourceResult> + Send + 'a;

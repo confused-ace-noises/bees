@@ -5,14 +5,14 @@ use crate::{net::Client, resources::resource_handler::ResourceManager};
 use super::error::Error;
 
 #[derive(Debug, Clone)]
-pub struct FormatString {
+pub struct ResourceString {
     parts: Vec<FormattableStringPart>,
     // an alive FormatString shouldn't keep a ResourceManager from a Client alive,
     // because when the Client dies so should its ResourceManager
     resource_manager: Weak<ResourceManager>
 }
 
-impl FormatString {
+impl ResourceString {
     pub fn new(client: &Client, raw: impl AsRef<str>) -> Self {
         Self::from_parts(client, Self::make_parts(raw))
     }

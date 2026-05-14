@@ -1,2 +1,2 @@
 pub mod error;
-pub mod format_string;
+pub mod resource_string;
