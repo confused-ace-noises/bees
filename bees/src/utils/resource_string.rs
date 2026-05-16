@@ -1,8 +1,6 @@
-use std::{any::Any, error::Error as StdError, sync::{Arc, Weak}};
+use std::{any::Any, sync::{Arc, Weak}};
 use derive_more::{Error, Display, From};
 use crate::{net::Client, resources::resource_handler::ResourceManager};
-
-use super::error::Error;
 
 #[derive(Debug, Clone)]
 pub struct ResourceString {

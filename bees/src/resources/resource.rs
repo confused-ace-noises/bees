@@ -1,10 +1,9 @@
-use std::{borrow::Borrow, fmt::{Debug, Display}, hash::Hash, error::Error as StdError};
+use std::{borrow::Borrow, fmt::Debug, hash::Hash};
 // #[cfg(not(feature = "async-trait"))]
 use std::{any::Any, sync::Arc};
 #[cfg(not(feature = "async-trait"))]
 use std::pin::Pin;
 
-// maybe this should be Box<dyn Display + Send + 'static>?
 pub type ResourceReadable = Arc<String>;
 pub type ResourceError = Arc<dyn Any + Send + Sync + 'static>;
 pub type ResourceResult = Result<ResourceReadable, ResourceError>;
@@ -28,13 +27,6 @@ impl<'a> Future for ResourceOutput<'a> {
         self.0.as_mut().poll(cx)
     }
 }
-
-pub trait AsAny: Sized {
-    fn as_any<'a>(&'a self) -> &'a (dyn Any + 'a) { self }
-    fn as_any_mut<'a>(&'a mut self) -> &'a mut (dyn Any + 'a) { self }
-}
-
-impl<T> AsAny for T {}
 
 #[cfg(not(feature = "async-trait"))]
 pub trait Resource: Debug + Send + Sync {

@@ -1,4 +1,4 @@
-use std::{any::Any, error::Error, fmt::{Debug, Display}, future::ready, sync::Arc};
+use std::{any::Any, fmt::Debug, future::ready, sync::Arc};
 
 use crate::resources::resource::Resource;
 

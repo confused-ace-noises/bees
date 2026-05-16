@@ -1,4 +1,4 @@
-use std::{ops::{Deref, DerefMut}, sync::Arc};
+use std::ops::{Deref, DerefMut};
 
 use dashmap::{DashSet, setref::one::Ref};
 
@@ -11,11 +11,6 @@ impl ResourceManager {
     pub fn new() -> Self {
         Self(DashSet::new())
     }
-
-    // #[inline]
-    // pub fn add_dyn_resource(&self, resource: Arc<dyn Resource>) -> bool {
-    //     self.0.insert(DynResource(resource))
-    // }
     
     #[inline]
     pub fn add_resource<T: Resource + 'static>(&self, resource: T) -> bool {
@@ -26,31 +21,6 @@ impl ResourceManager {
     pub fn get_resource<T: AsRef<str>>(&self, ident: T) -> Option<Ref<'_, DynResource>>{
         self.get(ident.as_ref())
     }
-
-    // #[inline]
-    // pub fn get_resource_ref(&self, ident: &str) -> Option<dashmap::setref::one::Ref<'_, Box<dyn Resource>>> {
-    //     self.0.get(ident)
-    // }
-
-    // // #[inline]
-    // // pub fn get_resource(&self, ident: &str) -> Option<DynResource> {
-    // //     self.0.get_resource_ref(ident).map(|x| x.clone())
-    // // }
-
-    // #[inline]
-    // pub fn remove_resource(&self, ident: &str) -> Option<Box<dyn Resource>> {
-    //     self.0.remove(ident) 
-    // }
-
-    // #[inline]
-    // pub fn remove_resource_if(&self, ident: &str, f: impl FnOnce(&Box<dyn Resource>) -> bool) -> Option<Box<dyn Resource>> {
-    //     self.0.remove_if(ident, f)
-    // }
-
-    // #[inline]
-    // pub fn contains_resource(&self, ident: &str) -> bool {
-    //     self.0.contains(ident)
-    // }
 }
 
 impl Deref for ResourceManager {

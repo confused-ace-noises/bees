@@ -11,7 +11,7 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
         capabilities,
         // processors,
         path,
-        handler: HandlerSpec {block, output, ..},
+        // handler: HandlerSpec {block, output, ..},
         modify_url,
     } = EndpointAttributes::parse_attributes(&input)?;
 
@@ -37,16 +37,16 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
     let capability_pieces = make_capabilities(capabilities);
 
     let capability_fn = quote! {
-        fn capabilities(_: &Self::CallContext) -> Arc<[Box<dyn Capability>]> {
+        fn capabilities(_: &Self::CallContext) -> ::std::sync::Arc<[Box<dyn Capability>]> {
             ::std::sync::Arc::new([ #(#capability_pieces),* ])
         }
     };
 
-    let handler_type_span = output.span();
-    let handler_type_piece = quote_spanned! {handler_type_span=> type EndpointHandler = #output; };
+    // let handler_type_span = output.span();
+    // let handler_type_piece = quote_spanned! {handler_type_span=> type EndpointHandler = #output; };
 
-    let handler_expr_span = output.span();
-    let handler_expr_piece = quote_spanned! {handler_expr_span=> fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler #block };
+    // let handler_expr_span = output.span();
+    // let handler_expr_piece = quote_spanned! {handler_expr_span=> fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler #block };
 
     let url_mod_fn_body = match modify_url {
         Some(url_mod_fn) => {
@@ -54,7 +54,7 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
             quote_spanned! {url_mod_fn_span=> #url_mod_fn(____url___)}
         },
         None => {
-            quote! {::std::future::ready(url)}
+            quote! {::std::future::ready(____url___)}
         },
     };
 
@@ -84,14 +84,14 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
         #impl_piece {
             #path_piece
 
-            #handler_type_piece
+            // #handler_type_piece
             #record_piece
             type CallContext = ();
 
             #http_verb_piece
             #capability_fn
 
-            #handler_expr_piece
+            // #handler_expr_piece
             #url_mod_fn
         }
 
@@ -109,23 +109,6 @@ struct EndpointAttributes {
     #[deluxe(default = Vec::new())]
     capabilities: Vec<syn::Expr>,
     path: syn::LitStr,
-    handler: HandlerSpec,
+    // handler: HandlerSpec,
     modify_url: Option<syn::Type>,
-}
-
-#[derive(Debug)]
-struct HandlerSpec {
-    block: Block,
-    _arrow: Token![->],
-    output: Type,
-}
-
-impl ParseMetaItem for HandlerSpec {
-    fn parse_meta_item(input: ParseStream, _mode: deluxe::ParseMode) -> syn::Result<Self> {
-        let block = input.parse::<Block>()?;
-        let _arrow = input.parse::<syn::Token![->]>()?;
-        let output: syn::Type = input.parse()?;
-
-        Ok(Self { block, _arrow, output })
-    }
 }

@@ -1,14 +1,17 @@
+use reqwest::Response;
+
 use crate::{net::Request, utils::error::Error};
-use std::fmt::Debug;
+use std::{fmt::Debug, num::NonZeroUsize};
 
 // ######## TRAITS ########
 pub trait Handler: Debug + Send {
-    type Error: Debug; 
+    type Input;
+    type Output;
 
     fn execute(
         &self,
-        req: Request,
-    ) -> impl Future<Output = Result<reqwest::Response, Self::Error>> + Send;
+        input: Self::Input,
+    ) -> impl Future<Output = Self::Output> + Send;
 }
 
 pub trait HandlerWrapper<H: Handler> {
@@ -38,12 +41,13 @@ impl<H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W> for H {
 pub struct NoRateLimiterBaseHandler;
 
 impl Handler for NoRateLimiterBaseHandler {
-    type Error = Error;
+    type Output = Result<reqwest::Response, Error>;
+    type Input = Request;
 
     async fn execute(
         &self,
-        req: Request,
-    ) -> Result<reqwest::Response, Self::Error> {
+        req: Self::Input,
+    ) -> Self::Output {
         req.client.execute_reqwest_req_no_rate_limit(req.inner).await
     }
 }
@@ -52,17 +56,22 @@ impl Handler for NoRateLimiterBaseHandler {
 pub struct BaseHandler;
 
 impl Handler for BaseHandler {
-    type Error = Error;
+    type Output = Result<reqwest::Response, Error>;
+    type Input = Request;
 
-    async fn execute(&self, req: Request) -> Result<reqwest::Response, Error> {
+    async fn execute(
+        &self,
+        req: Self::Input,
+    ) -> Self::Output {
         req.client.execute_reqwest_req(req.inner).await
     }
 }
 
 
+
 // ######## RETRIES ########
 #[derive(Debug)]
-pub struct Retries<H: Handler, const N: usize> { inner: H }
+pub struct Retries<H: Handler + Sync> { inner: H, n_retries: NonZeroUsize }
 
 #[derive(Debug)]
 pub enum RetriesError<E> {
@@ -70,22 +79,31 @@ pub enum RetriesError<E> {
     CouldNotCloneRequest,
 }
 
-impl<H: Handler, const N: usize> Retries<H, N> {
-    pub fn new(inner: H) -> Self {
-        const { assert!(N > 0, "`N` in Retries<H, N> must be greater than 0"); };
+impl<H, E> Retries<H> 
+where 
+    E: Debug,
+    H: Handler<Input = Request, Output = Result<Response, E>> + Sync
+{
+    pub fn new(inner: H, n_retries: usize) -> Self {
+        assert_ne!(n_retries, 0, "n_retries in Retries<H> must be greater than 0");
 
-        Self { inner }
+        // ? safety: new_unchecked is fine because it's checked above ^
+        Self { inner, n_retries: unsafe { NonZeroUsize::new_unchecked(n_retries) } }
     }
 }
 
-impl<E: Debug, H: Handler<Error = E> + Sync, const N: usize> Handler for Retries<H, N> {
-    type Error = RetriesError<E>;
+impl<E, H> Handler for Retries<H> 
+where 
+    E: Debug,
+    H: Handler<Input = Request, Output = Result<Response, E>> + Sync,
+{
+    type Input = Request;
+    type Output = Result<reqwest::Response, RetriesError<E>>;
 
-    async fn execute(&self, req: Request) -> Result<reqwest::Response, Self::Error> {
-        const { assert!(N > 0, "`N` in Retries<H, N> must be greater than 0"); };
-
+    async fn execute(&self, req: Self::Input) -> Self::Output {
         // let req = Arc::new(req);
-        for n in 0..N {
+        let n_retries: usize = self.n_retries.into();
+        for n in 0..n_retries{
             let Some(req) = req.try_clone() else {
                 return Err(RetriesError::CouldNotCloneRequest)
             };
@@ -94,7 +112,7 @@ impl<E: Debug, H: Handler<Error = E> + Sync, const N: usize> Handler for Retries
 
             match x {
                 Ok(resp) => return Ok(resp),
-                Err(e) if n == N-1 => {
+                Err(e) if n == n_retries => {
                     return Err(RetriesError::InnerError(e));
                 },
 
@@ -106,12 +124,16 @@ impl<E: Debug, H: Handler<Error = E> + Sync, const N: usize> Handler for Retries
     }
 }
 
-pub struct RetriesWrapper<const N: usize>;
+pub struct RetriesWrapper(pub usize);
 
-impl<H: Handler + Sync, const N: usize> HandlerWrapper<H> for RetriesWrapper<N> {
-    type Output = Retries<H, N>;
+impl<E, H> HandlerWrapper<H> for RetriesWrapper 
+where
+    E: Debug,
+    H: Handler<Input = Request, Output = Result<reqwest::Response, E>> + Sync
+{
+    type Output = Retries<H>;
 
     fn wrap_into(&self, from: H) -> Self::Output {
-        Retries { inner: from }
+        Retries::<H>::new(from, self.0)
     }
 }

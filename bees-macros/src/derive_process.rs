@@ -1,9 +1,9 @@
-use deluxe::{HasAttributes, ParseAttributes};
+use deluxe::{HasAttributes, ParseAttributes, ParseMetaItem};
 // use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{quote, quote_spanned};
-use syn::{Token, punctuated::Punctuated, spanned::Spanned};
+use syn::{Block, Token, Type, parse::ParseStream, punctuated::Punctuated, spanned::Spanned};
 
-pub(crate) fn procs_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+pub(crate) fn handler_stacks_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let ProcessAttrs(procs) = ProcessAttrs::parse_attributes(&input)?;
     
     let ident = input.ident;
@@ -12,7 +12,7 @@ pub(crate) fn procs_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_mac
         let span = proc_path.span();
         quote_spanned! {span=> 
             #[automatically_derived]
-            impl ::bees::endpoint::SupportsOutput<<#proc_path as ::bees::endpoint::Process>::ProcessOutput> for #ident {
+            impl ::bees::endpoint::HandlerStack<<#proc_path as ::bees::endpoint::Process>::ProcessOutput> for #ident {
                 type Process = #proc_path;
             }
         }
@@ -27,8 +27,25 @@ pub(crate) fn procs_derive_impl(input: syn::DeriveInput) -> syn::Result<proc_mac
 }
 
 #[derive(Debug)]
+struct HandlerSpec {
+    block: Block,
+    _arrow: Token![->],
+    output: Type,
+}
+
+impl ParseMetaItem for HandlerSpec {
+    fn parse_meta_item(input: ParseStream, _mode: deluxe::ParseMode) -> syn::Result<Self> {
+        let block = input.parse::<Block>()?;
+        let _arrow = input.parse::<syn::Token![->]>()?;
+        let output: syn::Type = input.parse()?;
+
+        Ok(Self { block, _arrow, output })
+    }
+}
+
+#[derive(Debug)]
 // #[deluxe(attributes(process))]
-struct ProcessAttrs(syn::punctuated::Punctuated<syn::Path, Token![,]>);
+struct ProcessAttrs(syn::punctuated::Punctuated<HandlerSpec, Token![,]>);
 
 impl ProcessAttrs {
     fn path_match(path: &syn::Path) -> bool {
@@ -53,7 +70,7 @@ impl<'t, T: HasAttributes> ParseAttributes<'t, T> for ProcessAttrs {
             let meta = attr.meta.require_list()?;
 
             // Parse the contents inside (...)
-            let parsed: Punctuated<syn::Path, Token![,]> =
+            let parsed: Punctuated<HandlerSpec, Token![,]> =
                 meta.parse_args_with(Punctuated::parse_terminated)?;
 
             result.extend(parsed);

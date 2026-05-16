@@ -1,14 +1,12 @@
-use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::endpoint::{EndpointInfo, SupportsOutput};
-use crate::handler::Handler;
-use crate::net::{Client, EndpointRunnerError};
+use crate::endpoint::{EndpointInfo, HandlerStack};
+use crate::net::Client;
 use crate::resources::resource::{Resource, ResourceResult};
-use derive_more::From;
+use crate::utils::error::Error;
 use tokio::sync::RwLock;
 
 #[cfg(not(feature = "async-trait"))]
@@ -16,16 +14,16 @@ use crate::resources::resource::ResourceOutput;
 
 use std::error::Error as StdError;
 
-type EndpointOutput = Result<Token, Arc<dyn Any + Send + Sync>>;
+type EndpointOutput<Err> = Result<Token, Err>;
 
 pub trait CanBeUsed: StdError + Clone {}
 
 impl<T: StdError + Clone> CanBeUsed for T {}
 
 #[derive(Debug)]
-pub struct UpdatingToken<E>
+pub struct UpdatingToken<E, Err: Debug + Send + Sync>
 where
-    E: EndpointInfo<CallContext = ()> + SupportsOutput<EndpointOutput> + Debug + Send + Sync,
+    E: EndpointInfo<CallContext = ()> + HandlerStack<EndpointOutput<Err>> + Debug + Send + Sync,
 {
     pub client: Client,
     pub ident: String,
@@ -33,26 +31,38 @@ where
 
     pub value: RwLock<Token>,
     pub last_update: RwLock<Instant>,
-    endpoint: PhantomData<E>,
+    endpoint: PhantomData<(E, Err)>,
 }
 
-#[derive(From, Debug)]
-pub enum UpdatingTokenError<H: Handler> {
-    TokenError(Arc<dyn Any + Send + Sync>),
-    EndpointRunnerError(EndpointRunnerError<H>)
+#[derive(Debug)]
+pub enum UpdatingTokenError<Err> {
+    TokenError(Err),
+    BeesError(Error)
 }
 
-impl<E> UpdatingToken<E>
+impl<Err> From<Error> for UpdatingTokenError<Err> {
+    fn from(value: Error) -> Self {
+        UpdatingTokenError::BeesError(value)
+    }
+}
+
+impl<E, Err> UpdatingToken<E, Err>
 where
-    E: EndpointInfo<CallContext = ()> + SupportsOutput<EndpointOutput> + Sync,
-    E::EndpointHandler: Sync,
+    E: EndpointInfo<CallContext = ()> + HandlerStack<EndpointOutput<Err>> + Sync,
+    E::Handlers: Sync,
+    Err: Debug + Send + Sync
 {
     pub async fn new(
         ident: impl AsRef<str>,
         update_interval: Duration,
         client: Client,
-    ) -> Result<Self, UpdatingTokenError<E::EndpointHandler>> {
-        let first_value = client.run_endpoint::<E>().run::<EndpointOutput>().await??;
+    ) -> Result<Self, UpdatingTokenError<Err>> {
+        let first_value = client.run_endpoint::<E, EndpointOutput<Err>>().run().await?;
+
+        let first_value = match first_value {
+            Ok(ok) => ok,
+            Err(e) => return Err(UpdatingTokenError::TokenError(e)),
+        };
 
         Ok(Self::new_start_with(
             ident,
@@ -78,8 +88,14 @@ where
         }
     }
 
-    pub async fn force_update(&self) -> Result<(), UpdatingTokenError<E::EndpointHandler>> {
-        let token = self.get_new_token().await??;
+    pub async fn force_update(&self) -> Result<(), UpdatingTokenError<Err>> {
+        let token = self.get_new_token().await?;
+
+        let token = match token {
+            Ok(ok) => ok,
+            Err(e) => return Err(UpdatingTokenError::TokenError(e))
+        };
+
         let mut lock_token = self.value.write().await;
         let mut lock_last_update = self.last_update.write().await;
 
@@ -91,10 +107,10 @@ where
 
     pub async fn get_new_token(
         &self,
-    ) -> Result<EndpointOutput, EndpointRunnerError<E::EndpointHandler>> {
+    ) -> Result<EndpointOutput<Err>, Error> {
         self.client
-            .run_endpoint::<E>()
-            .run::<EndpointOutput>()
+            .run_endpoint::<E, EndpointOutput<Err>>()
+            .run()
             .await
     }
 
@@ -137,10 +153,11 @@ impl Display for Token {
 }
 
 #[cfg(not(feature = "async-trait"))]
-impl<E> Resource for UpdatingToken<E>
+impl<E, Err> Resource for UpdatingToken<E, Err>
 where
-    E: EndpointInfo<CallContext = ()> + SupportsOutput<EndpointOutput> + Sync,
-    E::EndpointHandler: Sync,
+    E: EndpointInfo<CallContext = ()> + HandlerStack<EndpointOutput<Err>> + Sync,
+    E::Handlers: Sync,
+    Err: Debug + Send + Sync
 {
     fn ident(&self) -> &str {
         self.ident.as_str()
@@ -155,8 +172,8 @@ where
 #[async_trait::async_trait]
 impl<E> Resource for UpdatingToken<E>
 where
-    E: EndpointInfo<CallContext = ()> + SupportsOutput<EndpointOutput> + Sync,
-    E::EndpointHandler: Sync,
+    E: EndpointInfo<CallContext = ()> + HandlerStack<EndpointOutput> + Sync,
+    E::Handlers: Sync,
 {
     fn ident(&self) -> &str {
         self.ident.as_str()

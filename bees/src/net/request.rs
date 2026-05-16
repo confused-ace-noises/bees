@@ -3,7 +3,6 @@ use std::{sync::Arc, time::Duration};
 
 use delegate::delegate;
 use http::{HeaderName, HeaderValue};
-use reqwest::Response;
 
 use crate::{
     handler::{BaseHandler, Handler, HandlerWrapper, WrapDecorate},
@@ -29,14 +28,14 @@ impl<H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W> for RequestRunner<H> {
     }
 }
 
-impl<H: Handler> RequestRunner<H> {
-    pub async fn run(self) -> Result<Response, H::Error> {
+impl<H: Handler<Input = Request>> RequestRunner<H> {
+    pub async fn run(self) -> H::Output {
         self.handler.execute(self.request).await
     }
 }
 
 pub struct RequestBuilder {
-    pub(super) client: Client,
+    pub client: Client,
     pub(super) inner: reqwest::RequestBuilder,
 }
 

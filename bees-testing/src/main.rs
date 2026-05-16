@@ -1,30 +1,31 @@
-use std::{future::ready, sync::Arc};
+// use std::{future::ready, sync::Arc};
 
-use bees::{
-    self, Endpoint, EndpointProcessor, Record, capability::Capability, endpoint::{EndpointInfo, Process, SupportsOutput}, handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate}, net::{
-        Client, HttpMethod, HttpVerb, rate_limiter::RateLimiter
-    }, process, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}
-};
-use reqwest::{Response, header::HeaderMap};
-use url::Url;
-pub mod expanded;
+// use bees::{
+//     self, Endpoint, Record, capability::Capability, endpoint::{EndpointInfo, Process, SupportsOutput}, handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate}, net::{
+//         Client, HttpMethod, HttpVerb, rate_limiter::RateLimiter
+//     }, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}
+// };
+// use reqwest::{Response, header::HeaderMap};
+// use url::Url;
+
+// TODO FIXME: make a decent testing thing 
 
 #[tokio::main]
 async fn main() {
-    let client = Client::new(reqwest::Client::new(), RateLimiter::new(2.0, 10));
+    // let client = Client::new(reqwest::Client::new(), RateLimiter::new(2.0, 10));
 
-    let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
+    // let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
 
-    let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
+    // let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
 
-    let _x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
-        .run::<String>()
-        .await;
+    // let _x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
+    //     .run::<String>()
+    //     .await;
     
 
-    println!("{client:?}")
+    // println!("{client:?}")
 }
-
+/*
 #[derive(Record)]
 #[record(
     path = "https://idk.com/",
@@ -64,7 +65,6 @@ async fn url_func(url: Url) -> Url {
 #[derive(Debug, Endpoint, EndpointProcessor)]
 #[endpoint(
     record = TestRecord,
-    handler =  {let x = BaseHandler; x} -> BaseHandler,
     http_verb = HttpMethod::new_no_body(HttpVerb::GET),
     path = "idk",
     modify_url = url_func,
@@ -92,7 +92,7 @@ impl EndpointInfo for Test {
         BaseHandler.wrap(RetriesWrapper::<3>)
     }
 
-    async fn http_verb(_: &Self::CallContext) -> HttpMethod {
+    async fn http_method(_: &Self::CallContext) -> HttpMethod {
         HttpMethod::new_no_body(HttpVerb::GET)
     }
 
@@ -121,3 +121,4 @@ struct Thing<T>(T) where T: SupportsOutput<Response>;
 const _: () = {
     let t = Thing(Test);
 };
+*/

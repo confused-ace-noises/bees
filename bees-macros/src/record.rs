@@ -23,7 +23,7 @@ pub(crate) fn record_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::T
 
     let implementation = quote! {#impl_piece {
         #shared_url
-        fn shared_caps() -> Arc<[Box<dyn Capability>]> {
+        fn shared_caps() -> ::std::sync::Arc<[Box<dyn Capability>]> {
             ::std::sync::Arc::new([ #(#shared_caps),* ])
         } 
     }};

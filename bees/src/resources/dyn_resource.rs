@@ -1,4 +1,3 @@
-use crate::resources::resource::AsAny;
 #[cfg(feature = "async-trait")]
 use crate::resources::resource::ResourceResult;
 
@@ -8,7 +7,6 @@ use super::resource::ResourceOutput;
 use super::resource::Resource;
 use std::any::Any;
 use std::borrow::Borrow;
-use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;

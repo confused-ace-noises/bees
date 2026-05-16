@@ -1,16 +1,12 @@
 use crate::{
-    endpoint::{EndpointExt, EndpointInfo, Process, SupportsOutput},
-    handler::{Handler, HandlerWrapper, WrapDecorate},
-    net::{bodies::Body, net_error::NetError, rate_limiter::RateLimiter}, resources::resource_handler::ResourceManager
+    endpoint::{EndpointExt, EndpointInfo, HandlerStack},
+    handler::{BaseHandler, Handler, HandlerWrapper, WrapDecorate},
+    net::{bodies::Body, net_error::NetError, rate_limiter::RateLimiter},
+    resources::resource_handler::ResourceManager,
 };
-use derive_more::{Display, Error, From};
 use futures::future::join;
 use reqwest::{Client as ReqClient, Method, Response};
-use std::{
-    error::Error as StdError,
-    fmt::Debug,
-    sync::Arc,
-};
+use std::{error::Error as StdError, fmt::Debug, sync::Arc};
 
 use super::request::{Request, RequestBuilder};
 // use super::net_error::NetError as Error;
@@ -34,23 +30,26 @@ pub struct Client {
 
 impl Client {
     pub fn new(reqwest_client: ReqClient, rate_limiter: RateLimiter) -> Self {
-        Self::__new(reqwest_client, Arc::new(rate_limiter), ResourceManager::new())
+        Self::__new(
+            reqwest_client,
+            Arc::new(rate_limiter),
+            ResourceManager::new(),
+        )
     }
 
     pub(crate) fn _new(rate_limiter: Arc<RateLimiter>) -> Self {
         Self::__new(
-            // ReqClient::builder()
-            //     .proxy(Proxy::http("http://127.0.0.1:8080/").unwrap())
-            //     .proxy(Proxy::https("https://127.0.0.1:8080/").unwrap())
-            //     .build()
-            //     .unwrap(),
             ReqClient::new(),
             rate_limiter,
-            ResourceManager::new()
+            ResourceManager::new(),
         )
     }
 
-    pub(crate) fn __new(client: ReqClient, rate_limiter: Arc<RateLimiter>, res_manager: ResourceManager) -> Self {
+    pub(crate) fn __new(
+        client: ReqClient,
+        rate_limiter: Arc<RateLimiter>,
+        res_manager: ResourceManager,
+    ) -> Self {
         Self {
             inner: Arc::new(client),
             rate_limiter,
@@ -70,7 +69,10 @@ impl Client {
         f(self.inner.clone())?.await
     }
 
-    pub async fn execute_request_no_rate_limiter(&self, request: Request) -> Result<Response, Error> {
+    pub async fn execute_request_no_rate_limiter(
+        &self,
+        request: Request,
+    ) -> Result<Response, Error> {
         // self.rate_limiter.acquire().await;
         Ok(self
             .inner
@@ -90,17 +92,18 @@ impl Client {
         f(self.inner.clone())?.await
     }
 
-    pub fn get_raw_request_builder(&self, method: Method, url: impl reqwest::IntoUrl) -> RequestBuilder {
+    pub fn get_raw_request_builder(
+        &self,
+        method: Method,
+        url: impl reqwest::IntoUrl,
+    ) -> RequestBuilder {
         RequestBuilder {
             inner: self.inner.request(method, url),
             client: self.clone(),
         }
     }
 
-    pub async fn execute_reqwest_req(
-        &self,
-        request: reqwest::Request,
-    ) -> Result<Response, Error> {
+    pub async fn execute_reqwest_req(&self, request: reqwest::Request) -> Result<Response, Error> {
         self.rate_limiter.acquire().await;
         self.execute_reqwest_req_no_rate_limit(request).await
     }
@@ -127,20 +130,23 @@ impl Client {
         &self,
         call_context: &E::CallContext,
     ) -> Result<RequestBuilder, Error> {
-
-        // determine whether this makes sense, does it give enough of a speed boost to 
+        // determine whether this makes sense, does it give enough of a speed boost to
         // justify not guaranteeing order of operations?
-        let (url, method) = join(E::full_url(&self.resource_manager, call_context), E::http_verb(call_context)).await;
+        let (url, method) = join(
+            E::full_url(&self.resource_manager, call_context),
+            E::http_method(call_context),
+        )
+        .await;
 
         let url = url?;
 
         let request = self.get_raw_request_builder(method.verb.as_reqwest_method(), url);
-        
+
         let mut request = match method.body {
             Some(body) => body.add_body(request).await?,
             None => request,
         };
-        
+
         // let mut request = match verb {
         //     HttpVerb::GET | HttpVerb::DELETE(Option::None) | HttpVerb::OPTIONS | HttpVerb::HEAD => {
         //         request
@@ -174,32 +180,31 @@ impl Client {
     }
 
     // --------- RUN HELPERS ---------
-    pub fn run_endpoint_with<E: EndpointInfo>(
+    pub fn run_endpoint_with<E: EndpointInfo + HandlerStack<O>, O>(
         &self,
         call_context: E::CallContext,
-    ) -> EndpointRunner<E, E::EndpointHandler> {
-        EndpointRunner::new(self.clone(), call_context)
+    ) -> EndpointRunner<E, <E as HandlerStack<O>>::Handlers> {
+        EndpointRunner::<E, <E as HandlerStack<O>>::Handlers>::new(self.clone(), call_context)
     }
 
-    pub fn run_endpoint_ref_with<'a, E: EndpointInfo>(
+    pub fn run_endpoint_ref_with<'a, E: EndpointInfo + HandlerStack<O>, O>(
         &self,
-        call_context: &'a mut E::CallContext
-    ) -> EndpointRunnerRef<'a, E, E::EndpointHandler> {
-        EndpointRunnerRef::new(self.clone(), call_context)
-    }
-    
-    pub fn run_endpoint<E: EndpointInfo<CallContext = ()>>(
-        &self,
-    ) -> EndpointRunner<E, E::EndpointHandler>
-    {
-        EndpointRunner::new(self.clone(), ())
+        call_context: &'a mut E::CallContext,
+    ) -> EndpointRunnerRef<'a, E, <E as HandlerStack<O>>::Handlers> {
+        EndpointRunnerRef::<E, <E as HandlerStack<O>>::Handlers>::new(self.clone(), call_context)
     }
 
-    pub fn run_endpoint_ref<'a, E: EndpointInfo<CallContext = ()>>(
+    pub fn run_endpoint<E: EndpointInfo<CallContext = ()> + HandlerStack<O>, O>(
         &self,
-        call_context: &'a mut E::CallContext
-    ) -> EndpointRunnerRef<'a, E, E::EndpointHandler> {
-        EndpointRunnerRef::new(self.clone(), call_context)
+    ) -> EndpointRunner<E, <E as HandlerStack<O>>::Handlers> {
+        EndpointRunner::<E, <E as HandlerStack<O>>::Handlers>::new(self.clone(), ())
+    }
+
+    pub fn run_endpoint_ref<'a, E: EndpointInfo<CallContext = ()> + HandlerStack<O>, O>(
+        &self,
+        call_context: &'a mut E::CallContext,
+    ) -> EndpointRunnerRef<'a, E, E::Handlers> {
+        EndpointRunnerRef::<E, <E as HandlerStack<O>>::Handlers>::new(self.clone(), call_context)
     }
 
     pub fn get_rate_limiter(&self) -> Arc<RateLimiter> {
@@ -228,9 +233,16 @@ impl<E: EndpointInfo, H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W>
     }
 }
 
-impl<E: EndpointInfo> EndpointRunner<E, E::EndpointHandler> {
-    pub fn new(client: Client, call_context: E::CallContext) -> Self {
-        let base_handler = E::endpoint_handler(&call_context);
+impl<E, H> EndpointRunner<E, H>
+where
+    E: EndpointInfo,
+    H: Handler,
+{
+    pub fn new<O>(client: Client, call_context: E::CallContext) -> EndpointRunner<E, E::Handlers>
+    where
+        E: HandlerStack<O>,
+    {
+        let base_handler = <E as HandlerStack<O>>::handlers(&call_context);
 
         EndpointRunner {
             client,
@@ -240,38 +252,54 @@ impl<E: EndpointInfo> EndpointRunner<E, E::EndpointHandler> {
     }
 }
 
-impl<E: EndpointInfo, H: Handler> EndpointRunner<E, H> {
-    pub async fn run_get_response(&self) -> Result<Response, EndpointRunnerError<H>> {
-        self.handler.execute(self.client.get_request::<E>(&self.call_context).await?).await.map_err(EndpointRunnerError::HandlerError)
-    }
-    
-    pub async fn run<O>(&self) -> Result<O, EndpointRunnerError<H>>
-    where
-        E: SupportsOutput<O>,
-    {
-        let response = self.run_get_response().await?;
-        let proc_output = E::Process::process(response).await;
-
-        Ok(proc_output)
+impl<E, H> EndpointRunner<E, H>
+where
+    E: EndpointInfo,
+    H: Handler<Input = Request>,
+{
+    pub async fn run(&self) -> Result<H::Output, Error> {
+        Ok(self
+            .handler
+            .execute(self.client.get_request::<E>(&self.call_context).await?)
+            .await)
     }
 
-    pub async fn run_get_context<O>(self) -> Result<(O, E::CallContext), EndpointRunnerError<H>>
-    where
-        E: SupportsOutput<O>,
-    {
-        self.run::<O>().await.map(move |ok| (ok, self.call_context))
+    pub async fn run_force_response(&self) -> Result<Response, Error> {
+        BaseHandler::execute(
+            &BaseHandler,
+            self.client.get_request::<E>(&self.call_context).await?,
+        )
+        .await
+    }
+
+    pub async fn run_get_context(self) -> Result<(H::Output, E::CallContext), Error> {
+        Ok((self
+            .handler
+            .execute(self.client.get_request::<E>(&self.call_context).await?)
+            .await, self.call_context))
+    }
+
+    pub async fn run_force_response_get_context(self) -> Result<(Response, E::CallContext), Error> {
+        Ok((BaseHandler::execute(
+            &BaseHandler,
+            self.client.get_request::<E>(&self.call_context).await?,
+        )
+        .await?, self.call_context))
     }
 }
 
 pub struct EndpointRunnerRef<'a, E: EndpointInfo, H: Handler> {
     client: Client,
     handler: H,
-    pub call_context: &'a mut E::CallContext,
+    pub call_context: &'a E::CallContext,
 }
 
-impl<'a, E: EndpointInfo> EndpointRunnerRef<'a, E, E::EndpointHandler> {
-    pub fn new(client: Client, call_context: &'a mut E::CallContext) -> Self {
-        let base_handler = E::endpoint_handler(call_context);
+impl<'a, E: EndpointInfo, H: Handler> EndpointRunnerRef<'a, E, H> {
+    pub fn new<O>(client: Client, call_context: &'a mut E::CallContext) -> EndpointRunnerRef<'a, E, E::Handlers> 
+    where 
+        E: HandlerStack<O>
+    {
+        let base_handler = E::handlers(call_context);
 
         EndpointRunnerRef {
             client,
@@ -281,19 +309,20 @@ impl<'a, E: EndpointInfo> EndpointRunnerRef<'a, E, E::EndpointHandler> {
     }
 }
 
-impl<'a, E: EndpointInfo, H: Handler> EndpointRunnerRef<'a, E, H> {
-    pub async fn run_get_response(&mut self) -> Result<Response, EndpointRunnerError<H>> {
-        self.handler.execute(self.client.get_request::<E>(self.call_context).await?).await.map_err(EndpointRunnerError::HandlerError)
+impl<'a, E: EndpointInfo, H: Handler<Input = Request>> EndpointRunnerRef<'a, E, H> {
+    pub async fn run(&self) -> Result<H::Output, Error> {
+        Ok(self
+            .handler
+            .execute(self.client.get_request::<E>(self.call_context).await?)
+            .await)
     }
-    
-    pub async fn run<O>(&mut self) -> Result<O, EndpointRunnerError<H>>
-    where
-        E: SupportsOutput<O>,
-    { 
-        let response = self.run_get_response().await?;
-        let proc_output = <E as SupportsOutput<O>>::Process::process(response).await;
 
-        Ok(proc_output)
+    pub async fn run_force_response(&self) -> Result<Response, Error> {
+        BaseHandler::execute(
+            &BaseHandler,
+            self.client.get_request::<E>(self.call_context).await?,
+        )
+        .await
     }
 }
 
@@ -311,14 +340,13 @@ impl<'a, E: EndpointInfo, H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W>
     }
 }
 
+// #[derive(Debug, Display, Error, From)]
+// pub enum EndpointRunnerError<H: Handler> {
+//     FailedToBuildRequest(#[error(source)] Error),
 
-#[derive(Debug, Display, Error, From)]
-pub enum EndpointRunnerError<H: Handler> {
-    FailedToBuildRequest(#[error(source)] Error),
-    
-    #[from(skip)]
-    HandlerError(#[error(source)] H::Error)
-}
+//     #[from(skip)]
+//     HandlerError(#[error(source)] H::Error),
+// }
 
 #[derive(Debug)]
 pub enum HttpVerb {
@@ -338,17 +366,13 @@ pub struct HttpMethod {
 
 impl HttpMethod {
     pub fn new(verb: HttpVerb, body: Option<Body>) -> Self {
-        Self {
-            verb, 
-            body
-        }
+        Self { verb, body }
     }
 
     pub fn new_no_body(verb: HttpVerb) -> Self {
         Self { verb, body: None }
     }
 }
-
 
 impl HttpVerb {
     pub fn as_reqwest_method(&self) -> Method {
