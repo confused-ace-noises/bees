@@ -1,11 +1,13 @@
 use proc_macro::TokenStream;
+use syn::parse_macro_input;
 
-use crate::{endpoint::endpoint_derive, handler::attr_handler, record::record_impl};
+use crate::{chain::{Chain, Pipe, chain_impl, pipe_impl}, endpoint::endpoint_derive, handler::attr_handler, record::record_impl};
 
 // mod derive_process;
 mod handler;
 mod record;
 mod endpoint;
+mod chain;
 
 #[proc_macro_attribute]
 pub fn handler(_attrs: TokenStream, input: TokenStream) -> TokenStream {
@@ -16,6 +18,33 @@ pub fn handler(_attrs: TokenStream, input: TokenStream) -> TokenStream {
         Err(e) => e.into_compile_error().into(),
     }
 } 
+
+#[proc_macro]
+pub fn chain(input: TokenStream) -> TokenStream {
+    let chain = parse_macro_input!(input as Chain);
+
+    match chain_impl(chain) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+#[proc_macro]
+pub fn pipe(input: TokenStream) -> TokenStream {
+    let pipe = parse_macro_input!(input as Pipe);
+
+    match pipe_impl(pipe) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+
+// #[proc_macro_attribute]
+// /// no-op helper for #[handler] attribute
+// pub fn input(_: TokenStream, input: TokenStream) -> TokenStream {
+//     input
+// }
 
 
 // #[proc_macro_derive(HandlerStacks, attributes(process))]

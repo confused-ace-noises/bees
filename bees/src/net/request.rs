@@ -3,49 +3,28 @@ use std::{sync::Arc, time::Duration};
 
 use delegate::delegate;
 use http::{HeaderName, HeaderValue};
+use reqwest::Response;
 
 use crate::{
-    handler::{BaseHandler, Handler, HandlerWrapper, WrapDecorate},
+    handlers::{BaseHandler, Handler},
     net::{Client, net_error::NetError}, resources::resource_handler::ResourceManager,
 };
 
-pub struct RequestRunner<H: Handler> {
-    pub(super) request: Request,
-    pub(super) handler: H,
-}
+// pub struct RequestRunner<H: Handler> {
+//     pub(super) request: Request,
+//     pub(super) handler: H,
+// }
 
-impl<H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W> for RequestRunner<H> {
-    type Output = RequestRunner<W::Output>;
+// impl<H: Handler<Input = Request>> RequestRunner<H> {
+//     pub async fn run(self) -> H::Output {
+//         self.handler.execute(self.request).await
+//     }
+// }
 
-    fn wrap(self, wrapper: W) -> Self::Output
-    where
-        W: crate::handler::HandlerWrapper<H>,
-    {
-        RequestRunner {
-            request: self.request,
-            handler: self.handler.wrap(wrapper),
-        }
-    }
-}
-
-impl<H: Handler<Input = Request>> RequestRunner<H> {
-    pub async fn run(self) -> H::Output {
-        self.handler.execute(self.request).await
-    }
-}
-
+#[derive(Debug)]
 pub struct RequestBuilder {
     pub client: Client,
     pub(super) inner: reqwest::RequestBuilder,
-}
-
-impl fmt::Debug for RequestBuilder {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RequestBuilder")
-            .field("inner", &self.inner)
-            .field("rate_limiter", &"async_rate_limiter internals")
-            .finish()
-    }
 }
 
 impl RequestBuilder {
@@ -115,14 +94,9 @@ impl RequestBuilder {
         })
     }
 
-    pub async fn prepare_send(self) -> Result<RequestRunner<BaseHandler>, NetError> {
-        Ok(RequestRunner {
-            handler: BaseHandler,
-            request: Request {
-                inner: self.inner.build()?,
-                client: self.client
-            },
-        })
+    pub async fn send(self) -> Result<Response, NetError> {
+        let build = self.inner.build()?;
+        self.client.execute_reqwest_req(build).await
     }
 }
 

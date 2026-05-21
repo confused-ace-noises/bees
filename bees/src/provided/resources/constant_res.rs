@@ -1,3 +1,7 @@
+#[cfg(feature = "async-trait")]
+use core::error;
+#[cfg(not(feature = "async-trait"))]
+use std::error;
 use std::{any::Any, fmt::Debug, future::ready, sync::Arc};
 
 use crate::resources::resource::Resource;
@@ -44,7 +48,7 @@ impl Resource for ConstRes {
     }
 
     fn data<'a>(&'a self) -> crate::resources::resource::ResourceOutput<'a> {
-        ResourceOutput::new(ready(Ok::<_, Arc<dyn Any + Send + Sync>>(self.value.clone())))
+        ResourceOutput::new(ready(Ok::<_, Arc<dyn error::Error + Send + Sync>>(self.value.clone())))
     }
 } 
 
@@ -56,6 +60,6 @@ impl Resource for ConstRes {
     }
 
     async fn data(&self) -> ResourceResult {
-        Ok::<_, Arc<dyn Any + Send + Sync>>(self.value.clone())
+        Ok::<_, Arc<dyn error::Error + Send + Sync>>(self.value.clone())
     }
 } 

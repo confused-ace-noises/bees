@@ -8,23 +8,20 @@
 // use reqwest::{Response, header::HeaderMap};
 // use url::Url;
 
+use bees::{chain, handler, handlers::BaseHandler};
+
 // TODO FIXME: make a decent testing thing 
 
 #[tokio::main]
 async fn main() {
-    // let client = Client::new(reqwest::Client::new(), RateLimiter::new(2.0, 10));
-
-    // let endpoint_runner = client.run_endpoint_with::<Test>(UrlContext(Vec::new()));
-
-    // let endpoint_runner_2 = endpoint_runner.wrap(RetriesWrapper::<2>);
-
-    // let _x: Result<String, bees::net::EndpointRunnerError<_>> = endpoint_runner_2
-    //     .run::<String>()
-    //     .await;
-    
-
-    // println!("{client:?}")
+    // let x: chain!(BaseHandler, BaseHandler?, BaseHandler, BaseHandler);
 }
+
+#[handler]
+pub async fn StoreInDbSomehow(#[input] request_text: String, _db_handle: ()) -> (String, u64) {
+    todo!("{}", request_text);
+}
+
 /*
 #[derive(Record)]
 #[record(

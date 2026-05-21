@@ -7,7 +7,7 @@ use crate::record::make_capabilities;
 pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let EndpointAttributes {
         record,
-        http_verb,
+        http_method: http_verb,
         capabilities,
         // processors,
         path,
@@ -31,13 +31,13 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
     let http_verb_span = http_verb.span();
     let http_verb_piece = quote_spanned! {http_verb_span=> 
         #[allow(clippy::manual_async_fn)]
-        fn http_verb(_: &Self::CallContext) -> impl Future<Output = HttpMethod> + Send { async move { #http_verb } } 
+        fn http_method(_: &mut Self::CallContext) -> impl Future<Output = HttpMethod> + Send { async move { #http_verb } } 
     };
 
     let capability_pieces = make_capabilities(capabilities);
 
     let capability_fn = quote! {
-        fn capabilities(_: &Self::CallContext) -> ::std::sync::Arc<[Box<dyn Capability>]> {
+        fn capabilities(_: &mut Self::CallContext) -> ::std::sync::Arc<[Box<dyn Capability>]> {
             ::std::sync::Arc::new([ #(#capability_pieces),* ])
         }
     };
@@ -60,7 +60,7 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
 
     let url_mod_fn = quote! {
         #[allow(clippy::manual_async_fn)]
-        fn modify_url(____url___: ::bees::re_exports::url::Url, _: &Self::CallContext) -> impl ::std::future::Future<Output = ::bees::re_exports::url::Url> + ::std::marker::Send {
+        fn modify_url(____url___: ::bees::re_exports::url::Url, _: &mut Self::CallContext) -> impl ::std::future::Future<Output = ::bees::re_exports::url::Url> + ::std::marker::Send {
             #url_mod_fn_body
         }
     };
@@ -105,7 +105,7 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
 #[deluxe(attributes(endpoint))]
 struct EndpointAttributes {
     record: syn::Type,
-    http_verb: syn::Expr,
+    http_method: syn::Expr,
     #[deluxe(default = Vec::new())]
     capabilities: Vec<syn::Expr>,
     path: syn::LitStr,

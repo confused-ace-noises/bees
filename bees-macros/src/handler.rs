@@ -1,8 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
-use syn::{
-    FnArg, Ident, Pat, PatIdent, PatType, Signature, Type, spanned::Spanned,
-};
+use syn::{FnArg, Ident, Pat, PatIdent, PatType, Signature, Type, spanned::Spanned};
 
 pub(crate) fn attr_handler(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
     let cloned_sig = func.sig.clone();
@@ -17,20 +15,18 @@ pub(crate) fn attr_handler(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
         call_args,
     } = check_signature(&cloned_sig)?;
 
-    sig.inputs.iter_mut().for_each(|arg| {
-        match arg {
-            FnArg::Typed(typed) => {
-                typed.attrs.retain(|attr| {
-                    !attr
-                        .meta
-                        .require_path_only()
-                        .map(|p| p.is_ident("input"))
-                        .unwrap_or(false)
-                });
-            },
-
-            _ => unreachable!("checked before")
+    sig.inputs.iter_mut().for_each(|arg| match arg {
+        FnArg::Typed(typed) => {
+            typed.attrs.retain(|attr| {
+                !attr
+                    .meta
+                    .require_path_only()
+                    .map(|p| p.is_ident("input"))
+                    .unwrap_or(false)
+            });
         }
+
+        _ => unreachable!("checked before"),
     });
 
     let input_span = input.span();
@@ -43,11 +39,12 @@ pub(crate) fn attr_handler(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
 
     // ******** STRUCT ********
     let struct_upper = quote! {#vis struct #name #type_gens #where_clause};
+    let mut quotes = Vec::new();
     let struct_args = {
         if others.is_empty() {
             quote! {;}
         } else {
-            let quotes = others
+            quotes = others
                 .iter()
                 .map(|PatType { pat, ty, .. }| quote! {#pat: #ty})
                 .collect::<Vec<_>>();
@@ -69,6 +66,26 @@ pub(crate) fn attr_handler(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
     sig.ident = hijack_ident.clone();
     // ******** HIJACK IDENT ********
 
+    
+    let struct_handler_impl =
+    quote! { impl #impl_generics ::bees::handlers::Handler for #name #type_gens #where_clause };
+    
+    let mut struct_impl = TokenStream::new();
+    let mut new_fn = TokenStream::new();
+    
+    if !quotes.is_empty() {
+        struct_impl = quote! { impl #impl_generics #name #type_gens #where_clause };
+        
+        let struct_init = others.iter().map(|PatType{ pat, ..}| quote! {#pat}).collect::<Vec<_>>();
+
+        new_fn = quote! {{#vis fn new(#(#quotes),*) -> Self {
+            Self { #(#struct_init),* }
+        }}}; // has an extra set of braces to act like the impl's
+    }
+
+    // strip the vis modifier
+    func.vis = syn::Visibility::Inherited;
+
     let call = {
         if is_async {
             quote! {#hijack_ident( #(#call_args),* )}
@@ -77,15 +94,14 @@ pub(crate) fn attr_handler(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
         }
     };
 
-    let struct_impl =
-        quote! { impl #impl_generics ::bees::endpoint::Handler for #name #type_gens #where_clause };
-
     let input_associated = quote_spanned! {input_span=> type Input = #input_type; };
     let output_associated = quote_spanned! {output_span=> type Output = #output_type; };
 
     let fn_process = quote! {
         fn execute(&self, input: Self::Input) -> impl Future<Output = Self::Output> + Send {
             #[allow(non_snake_case)]
+            #[doc(hidden)]
+            #[inline(always)]
             #func
 
             #call
@@ -93,8 +109,16 @@ pub(crate) fn attr_handler(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
     };
 
     let finished = quote! {
+        #[derive(Debug)]
         #struct_whole
-        #struct_impl {
+
+        #[automatically_derived]
+        #struct_impl 
+            #new_fn // already has its outer braces
+
+        
+        #[automatically_derived]
+        #struct_handler_impl {
             #input_associated
             #output_associated
 
@@ -147,7 +171,7 @@ fn check_signature(sig: &Signature) -> syn::Result<Abstraction<'_>> {
             } else {
                 return Err(syn::Error::new_spanned(
                     &sig.inputs,
-                    "There must be only one #[input] attribute, which signals the type of the `Handler::Input` associated type.",
+                    "There must be only one #[input] attribute, which signals the type of the `Handler::Input` associated type",
                 ));
             }
         } else {
@@ -161,11 +185,10 @@ fn check_signature(sig: &Signature) -> syn::Result<Abstraction<'_>> {
         }
     }
 
-
     if input.is_none() {
         return Err(syn::Error::new_spanned(
             &sig.inputs,
-            "A `Handler` must contain exactly one `input` argument, signaled by the #[input] attribute.",
+            "A `Handler` must contain exactly one `input` argument, signaled by the #[input] attribute",
         ));
     }
 
@@ -180,7 +203,7 @@ fn check_signature(sig: &Signature) -> syn::Result<Abstraction<'_>> {
             if let Type::ImplTrait(_) = output_ty {
                 return Err(syn::Error::new_spanned(
                     output_ty,
-                    "`impl Trait` in this position is not allowed in stable rust.",
+                    "`impl Trait` in this position is not yet allowed in stable rust",
                 ));
             }
 

@@ -1,4 +1,4 @@
-use std::{any::Any, sync::{Arc, Weak}};
+use std::{any::Any, sync::{Arc, Weak}, error::Error as StdError};
 use derive_more::{Error, Display, From};
 use crate::{net::Client, resources::resource_handler::ResourceManager};
 
@@ -124,9 +124,6 @@ impl ResourceString {
                     }
                 }
             }
-
-            print!("{result}");
-
             Ok(result)
         }
     }
@@ -152,7 +149,7 @@ pub enum FormatStringError {
 
     #[display("Resource error: {_0:?}")]
     #[error(ignore)]
-    ResourceError(Arc<dyn Any + Send + Sync>),
+    ResourceError(Arc<dyn StdError + Send + Sync>),
 
     #[display("The client this FormattableString refers to got dropped.")]
     #[from(skip)]

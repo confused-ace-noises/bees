@@ -7,8 +7,9 @@ use std::error::Error as StdError;
 
 #[cfg(not(feature = "async-trait"))]
 use std::pin::Pin;
+use std::sync::Arc;
 
-pub type CapError = Box<dyn StdError + Send>;
+pub type CapError = Box<dyn StdError + Send + Sync>;
 
 #[cfg(not(feature = "async-trait"))]
 pub struct CapabilityOutput<'a>(pub Pin<Box<dyn Future<Output = Result<RequestBuilder, CapError>> + Send + 'a>>);

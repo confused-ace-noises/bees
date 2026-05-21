@@ -46,7 +46,7 @@ impl Capability for TextBody {
             .to_formatted_now()
             .await
             .map(|string| request.body(string))
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
+            .map_err(|e| Box::new(e) as CapError)
     }
 }
 
@@ -75,7 +75,7 @@ impl Capability for JsonBody {
             .to_formatted_now()
             .await
             .map(|j| request.body(j))
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
+            .map_err(|e| Box::new(e) as CapError)
     }
 }
 

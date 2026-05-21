@@ -2,7 +2,7 @@ pub mod endpoint;
 pub mod record;
 pub mod capability;
 pub mod net;
-pub mod handler;
+pub mod handlers;
 pub mod utils;
 pub mod resources;
 pub mod provided;

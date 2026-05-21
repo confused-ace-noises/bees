@@ -1,11 +1,11 @@
-use std::{borrow::Borrow, fmt::Debug, hash::Hash};
+use std::{borrow::Borrow, fmt::Debug, hash::Hash, error::Error as StdError};
 // #[cfg(not(feature = "async-trait"))]
 use std::{any::Any, sync::Arc};
 #[cfg(not(feature = "async-trait"))]
 use std::pin::Pin;
 
 pub type ResourceReadable = Arc<String>;
-pub type ResourceError = Arc<dyn Any + Send + Sync + 'static>;
+pub type ResourceError = Arc<dyn StdError + Send + Sync + 'static>;
 pub type ResourceResult = Result<ResourceReadable, ResourceError>;
 pub type ResourceFuture<'a> = dyn Future<Output = ResourceResult> + Send + 'a;
 

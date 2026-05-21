@@ -1,5 +1,5 @@
 use reqwest::Response;
-use crate::handler::Handler;
+use crate::handlers::Handler;
 
 
 #[derive(Debug)]

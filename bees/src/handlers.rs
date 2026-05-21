@@ -1,6 +1,6 @@
 use reqwest::Response;
 
-use crate::{net::Request, utils::error::Error};
+use crate::{net::{Request, net_error::NetError}, utils::error::Error};
 use std::{fmt::Debug, num::NonZeroUsize};
 
 // ######## TRAITS ########
@@ -14,34 +14,111 @@ pub trait Handler: Debug + Send {
     ) -> impl Future<Output = Self::Output> + Send;
 }
 
-pub trait HandlerWrapper<H: Handler> {
-    type Output: Handler;
+#[derive(Debug)]
+pub struct Chain<A, B>(
+    pub A,
+    pub B,
+)
+where
+    A: Handler + Sync,
+    B: Handler<Input = A::Output> + Sync,
 
-    fn wrap_into(&self, from: H) -> Self::Output;
-}
+    A::Output: Send,
+    A::Input: Send,
+    B::Output: Send;
 
-pub trait WrapDecorate<H: Handler, W: HandlerWrapper<H>>: Sized {
-    type Output;
+impl<A: Handler, B: Handler> Handler for Chain<A, B>
+where 
+    A: Handler + Sync,
+    B: Handler<Input = A::Output> + Sync,
 
-    fn wrap(self, wrapper: W) -> Self::Output;
-}
+    A::Output: Send,
+    A::Input: Send,
+    B::Output: Send
+{
+    type Input = A::Input;
 
-impl<H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W> for H {
-    type Output = W::Output;
-    
-    fn wrap(self, wrapper: W) -> Self::Output
-    {
-        wrapper.wrap_into(self)
+    type Output = B::Output;
+
+    async fn execute(
+        &self,
+        input: Self::Input,
+    ) -> Self::Output {
+        let output = self.0.execute(input).await;
+        self.1.execute(output).await
     }
-    
 }
+
+#[derive(Debug)]
+pub struct TryChain<A, B>(pub A, pub B)
+where
+    A: Handler + Sync,
+
+    A::Output: Send,
+    A::Input: Send;
+
+impl<A: Handler, B: Handler, Ok, Err> Handler for TryChain<A, B>
+where 
+    A: Handler<Output = Result<Ok, Err>> + Sync,
+    B: Handler<Input = Ok> + Sync,
+
+    A::Output: Send,
+    A::Input: Send,
+    B::Output: Send,
+    Err: Send
+{
+    type Input = A::Input;
+
+    type Output = Result<B::Output, Err>;
+
+    async fn execute(
+        &self,
+        input: Self::Input,
+    ) -> Self::Output {
+        let output = self.0.execute(input).await?;
+        Ok(self.1.execute(output).await)
+    }
+}
+
+// #[macro_export]
+// macro_rules! chain {
+//     ($handler:ty) => {
+//         $handler
+//     };
+
+//     ($handler:ty, $($remaining:ty),+) => {
+//         $crate::handlers::Chain<$handler, $crate::chain!($($remaining),*)>
+//     };
+// }
+
+// pub trait HandlerWrapper<H: Handler> {
+//     type Output: Handler;
+
+//     fn wrap_into(&self, from: H) -> Self::Output;
+// }
+
+// pub trait WrapDecorate<H: Handler, W: HandlerWrapper<H>>: Sized {
+//     type Output;
+
+//     fn wrap(self, wrapper: W) -> Self::Output;
+// }
+
+// impl<H: Handler, W: HandlerWrapper<H>> WrapDecorate<H, W> for H {
+//     type Output = W::Output;
+    
+//     fn wrap(self, wrapper: W) -> Self::Output
+//     {
+//         wrapper.wrap_into(self)
+//     }
+    
+// }
 
 // ######## BASE_HANDLER ########
 #[derive(Debug, Clone)]
 pub struct NoRateLimiterBaseHandler;
 
 impl Handler for NoRateLimiterBaseHandler {
-    type Output = Result<reqwest::Response, Error>;
+    type Output = Result<reqwest::Response, NetError>;
     type Input = Request;
 
     async fn execute(
@@ -56,7 +133,7 @@ impl Handler for NoRateLimiterBaseHandler {
 pub struct BaseHandler;
 
 impl Handler for BaseHandler {
-    type Output = Result<reqwest::Response, Error>;
+    type Output = Result<reqwest::Response, NetError>;
     type Input = Request;
 
     async fn execute(
@@ -121,19 +198,5 @@ where
         }
 
         unreachable!()
-    }
-}
-
-pub struct RetriesWrapper(pub usize);
-
-impl<E, H> HandlerWrapper<H> for RetriesWrapper 
-where
-    E: Debug,
-    H: Handler<Input = Request, Output = Result<reqwest::Response, E>> + Sync
-{
-    type Output = Retries<H>;
-
-    fn wrap_into(&self, from: H) -> Self::Output {
-        Retries::<H>::new(from, self.0)
     }
 }
