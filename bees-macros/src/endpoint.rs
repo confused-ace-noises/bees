@@ -1,6 +1,6 @@
-use deluxe::{ParseAttributes, ParseMetaItem};
+use deluxe::ParseAttributes;
 use quote::{quote, quote_spanned};
-use syn::{Block, Token, Type, parse::ParseStream, spanned::Spanned};
+use syn::{spanned::Spanned};
 
 use crate::record::make_capabilities;
 
@@ -36,8 +36,10 @@ pub(crate) fn endpoint_derive(input: syn::DeriveInput) -> syn::Result<proc_macro
 
     let capability_pieces = make_capabilities(capabilities);
 
+    let path = quote! { ::bees::capability::Capability };
+
     let capability_fn = quote! {
-        fn capabilities(_: &mut Self::CallContext) -> ::std::sync::Arc<[Box<dyn Capability>]> {
+        fn capabilities(_: &mut Self::CallContext) -> ::std::sync::Arc<[Box<dyn #path>]> {
             ::std::sync::Arc::new([ #(#capability_pieces),* ])
         }
     };

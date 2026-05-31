@@ -74,7 +74,10 @@ pub(crate) fn attr_handler(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
     let mut new_fn = TokenStream::new();
     
     if !quotes.is_empty() {
-        struct_impl = quote! { impl #impl_generics #name #type_gens #where_clause };
+        struct_impl = quote! { 
+            #[automatically_derived]
+            impl #impl_generics #name #type_gens #where_clause
+        };
         
         let struct_init = others.iter().map(|PatType{ pat, ..}| quote! {#pat}).collect::<Vec<_>>();
 
@@ -112,7 +115,6 @@ pub(crate) fn attr_handler(mut func: syn::ItemFn) -> syn::Result<TokenStream> {
         #[derive(Debug)]
         #struct_whole
 
-        #[automatically_derived]
         #struct_impl 
             #new_fn // already has its outer braces
 

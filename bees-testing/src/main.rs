@@ -1,121 +1,106 @@
-// use std::{future::ready, sync::Arc};
-
-// use bees::{
-//     self, Endpoint, Record, capability::Capability, endpoint::{EndpointInfo, Process, SupportsOutput}, handler::{BaseHandler, Retries, RetriesWrapper, WrapDecorate}, net::{
-//         Client, HttpMethod, HttpVerb, rate_limiter::RateLimiter
-//     }, provided::capabilities::add_headers::{AddHeaderMap, AddHeaders}
-// };
-// use reqwest::{Response, header::HeaderMap};
-// use url::Url;
-
-use bees::{chain, handler, handlers::BaseHandler};
-
-// TODO FIXME: make a decent testing thing 
+use bees::{
+    Endpoint, HandlerStacks, Record, chain,
+    endpoint::{EndpointInfo, HandlerStack, HandlerStackError},
+    handler,
+    handlers::BaseHandler,
+    net::{Client, HttpMethod, HttpVerb, net_error::NetError, rate_limiter::RateLimiter},
+    pipe,
+    provided::{capabilities::add_headers::AddHeaders, handlers::IntoJson, resources::constant_res::ConstRes},
+};
+use reqwest::{Client as ReqClient, Response};
+use serde_json::Value;
 
 #[tokio::main]
 async fn main() {
-    // let x: chain!(BaseHandler, BaseHandler?, BaseHandler, BaseHandler);
+    let rate_per_sec = 5.0;
+    let burst = 2;
+    // create the bees client:
+    //                               specify the reqwest client...    ...and the rate limiter
+    let client = Client::new(ReqClient::new(), RateLimiter::new(rate_per_sec, burst));
+
+    // add a Resource to the Client's resource manager, making it
+    // available for interpolation into URLs and request bodies
+    client.resource_manager.add_resource(ConstRes::new("my_resource", "some_value") );
+
+    // once the Endpoint and its HandlerStacks have been declared, the Endpoint can
+    // be easily called by using the .run_endpoint<EndpointName, Output>() method on the Client
+    let string_output: String = client
+        .run_endpoint::<MyEndpoint, String>()
+        .await
+        .expect("Couldn't execute request");
+
+    let json_output: JsonOutput = client
+        .run_endpoint::<MyEndpoint, JsonOutput>()
+        .await
+        .expect("Couldn't execute request");
 }
 
-#[handler]
-pub async fn StoreInDbSomehow(#[input] request_text: String, _db_handle: ()) -> (String, u64) {
-    todo!("{}", request_text);
-}
-
-/*
+// derive impl of a Record:
 #[derive(Record)]
 #[record(
-    path = "https://idk.com/",
-    capabilities([AddHeaders(Vec::new()), AddHeaderMap(HeaderMap::new())])
+    // initial part of url shared by all Endpoints using this Record
+    path = "https://example.com/api/",
+
+    // Capabilities used by every Endpoint using this Record
+    capabilities = [
+        AddHeaders(
+            vec![
+                ("Some-Header".into(), "value".into())
+            ])
+    ]
 )]
-pub struct TestRecord;
+struct MyRecord;
 
-struct NoOpProcess;
-
-impl Process for NoOpProcess {
-    type ProcessOutput = Response;
-
-    fn process(resp: Response) -> impl Future<Output = Self::ProcessOutput> {
-        ready(resp)
-    }
-}
-
-// struct IntoTextProcessor;
-
-// impl Process for IntoTextProcessor {
-//     type ProcessOutput = String;
-
-//     async fn process(resp: Response) -> Self::ProcessOutput {
-//         resp.text().await.unwrap()
-//     }
-// }
-
-#[process]
-async fn IntoTextProcess(resp: Response) -> String {
-    resp.text().await.unwrap()
-}
-
-async fn url_func(url: Url) -> Url {
-    url
-}
-
-#[derive(Debug, Endpoint, EndpointProcessor)]
+#[derive(Debug, Endpoint, HandlerStacks)]
+// Endpoint declaration:
 #[endpoint(
-    record = TestRecord,
-    http_verb = HttpMethod::new_no_body(HttpVerb::GET),
-    path = "idk",
-    modify_url = url_func,
+    // the Record used by this Endpoint
+    record = MyRecord,
+    // the path to append to the Record's; in this case, the my_resource Resource will
+    // be interpolated into the URL, and so the path will be
+    // https://example.com/api/my/some_value/endpoint
+    path = "my/<my_resource>/endpoint",
+    // The HTTP method used by this Endpoint
+    http_method = HttpMethod::new_no_body(HttpVerb::GET),
 )]
-#[process(NoOpProcess, IntoTextProcess)]
-struct Test2;
+// HandlerStack impl:
+#[stacks(
+    // This Endpoint will support a String as an output type, and if a String
+    // is requested as an Output, BaseHandler will get the Response from the 
+    // server and then IntoText will get the String (see below for IntoText impl) 
+    String: BaseHandler, IntoText
+)]
+struct MyEndpoint;
 
-#[derive(Debug, EndpointProcessor)]
-#[process(NoOpProcess)]
-#[process(IntoTextProcess)]
-struct Test;
-
-impl EndpointInfo for Test {
-    type Record = TestRecord;
-    type CallContext = UrlContext;
-    type EndpointHandler = Retries<BaseHandler, 3>;
-
-    const PATH: &str = "idk";
-
-    fn capabilities(_: &Self::CallContext) -> Arc<[Box<dyn Capability>]> {
-        Arc::new([])
-    }
-
-    fn endpoint_handler(_: &Self::CallContext) -> Self::EndpointHandler {
-        BaseHandler.wrap(RetriesWrapper::<3>)
-    }
-
-    async fn http_method(_: &Self::CallContext) -> HttpMethod {
-        HttpMethod::new_no_body(HttpVerb::GET)
-    }
-
-    async fn modify_url(mut url: Url, call: &Self::CallContext) -> Url {
-        call.append_to_url(&mut url);
-        url
-    }
+#[handler]
+// this Handler takes Result<Response, NetError> as an input (BaseHandler's output),
+// and outputs a String.
+pub async fn IntoText(#[input] resp: Result<Response, NetError>) -> String {
+    resp.expect("Request failed")
+        .text()
+        .await
+        .expect("Couldn't get text out of Response")
 }
 
-struct UrlContext(Vec<(String, Option<String>)>);
+type JsonOutput = Result<Result<Value, serde_json::Error>, NetError>;
 
-impl UrlContext {
-    pub fn append_to_url(&self, url: &mut Url) {
-        let mut query_pairs = url.query_pairs_mut();
-        for (key, maybe_value) in self.0.iter() {
-            if let Some(value) = maybe_value {
-                query_pairs.append_pair(key, value);
-            } else {
-                query_pairs.append_key_only(key);
-            }
-        }
+// Another HandlerStack implementation; this means that the Endpoint will also support
+// JsonOutput as an Output
+impl HandlerStack<JsonOutput> for MyEndpoint {
+    // The chain! macro chains together any number of Handlers by using nested Chain<A, B>,
+    // which is a Handler that chains the output of Handler A with the input of Handler B.
+    // if a Handler returns a Result enum, this can be marked with `~` or `try` to bubble the
+    // error variant up, like the question mark operator (?)
+    type Handlers = chain!(~BaseHandler, IntoJson);
+
+    async fn handlers(
+        _: &mut <Self as EndpointInfo>::CallContext,
+    ) -> Result<Self::Handlers, HandlerStackError> {
+        // the pipe! macro is like the chain! macro, but for expressions instead of types.
+        // like chain!, `~` or `try` can be used to bubble up the error variant of the output type
+        // of the expression the `~` or `try` sigil is used on, like the question mark
+        // operator in normal expressions; if the question mark operator is used inside the pipe! macro,
+        // it will expand and bubble up the error variant of the expression itself, and not of the output type.
+        Ok(pipe!(try BaseHandler, IntoJson))
     }
 }
-
-struct Thing<T>(T) where T: SupportsOutput<Response>;
-const _: () = {
-    let t = Thing(Test);
-};
-*/

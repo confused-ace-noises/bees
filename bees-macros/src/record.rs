@@ -1,6 +1,5 @@
 use deluxe::ParseAttributes;
 use quote::{quote, quote_spanned};
-use syn::spanned::Spanned;
 
 pub(crate) fn record_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     
@@ -23,19 +22,18 @@ pub(crate) fn record_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::T
 
     let implementation = quote! {#impl_piece {
         #shared_url
-        fn shared_caps() -> ::std::sync::Arc<[Box<dyn Capability>]> {
+        fn shared_caps() -> ::std::sync::Arc<[Box<dyn ::bees::capability::Capability>]> {
             ::std::sync::Arc::new([ #(#shared_caps),* ])
         } 
     }};
-    
+
     Ok(implementation)
 }
 
 pub(crate) fn make_capabilities(capabilities: Vec<syn::Expr>) -> impl Iterator<Item = proc_macro2::TokenStream> {
-    capabilities.into_iter().map(|expr| {
-        let expr_span = expr.span();
-
-        quote_spanned! {expr_span=> ::std::boxed::Box::new(#expr) as ::std::boxed::Box<dyn ::bees::capability::Capability>}
+    // let path = quote! { ::bees::capability::Capability };
+    capabilities.into_iter().map(move |expr| {
+        quote! {::std::boxed::Box::new(#expr) as ::std::boxed::Box<dyn ::bees::capability::Capability>}
     })
 }
 

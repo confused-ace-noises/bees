@@ -82,13 +82,13 @@ pub trait HandlerStack<O>: EndpointInfo {
     fn handlers(ctx: &mut <Self as EndpointInfo>::CallContext) -> impl Future<Output = Result<Self::Handlers, HandlerStackError>> + Send;
 }
 
-impl<E: EndpointInfo> HandlerStack<Result<Response, NetError>> for E {
-    type Handlers = BaseHandler;
+// impl<E: EndpointInfo> HandlerStack<Result<Response, NetError>> for E {
+//     type Handlers = BaseHandler;
 
-    fn handlers(_: &mut <Self as EndpointInfo>::CallContext) -> impl Future<Output = Result<Self::Handlers, HandlerStackError>> + Send {
-        ready(Ok(BaseHandler))
-    }
-}
+//     fn handlers(_: &mut <Self as EndpointInfo>::CallContext) -> impl Future<Output = Result<Self::Handlers, HandlerStackError>> + Send {
+//         ready(Ok(BaseHandler))
+//     }
+// }
 
 // TODO: maybe add this?
 // pub trait Pipeline {

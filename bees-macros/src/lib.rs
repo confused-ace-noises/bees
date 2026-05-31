@@ -1,13 +1,14 @@
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-use crate::{chain::{Chain, Pipe, chain_impl, pipe_impl}, endpoint::endpoint_derive, handler::attr_handler, record::record_impl};
+use crate::{chain::{Chain, Pipe, chain_impl, pipe_impl}, endpoint::endpoint_derive, handler::attr_handler, handler_stacks::handler_stacks_impl, record::record_impl};
 
 // mod derive_process;
 mod handler;
 mod record;
 mod endpoint;
 mod chain;
+mod handler_stacks;
 
 #[proc_macro_attribute]
 pub fn handler(_attrs: TokenStream, input: TokenStream) -> TokenStream {
@@ -39,23 +40,15 @@ pub fn pipe(input: TokenStream) -> TokenStream {
     }
 }
 
+#[proc_macro_derive(HandlerStacks, attributes(stacks))]
+pub fn handler_stacks(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
 
-// #[proc_macro_attribute]
-// /// no-op helper for #[handler] attribute
-// pub fn input(_: TokenStream, input: TokenStream) -> TokenStream {
-//     input
-// }
-
-
-// #[proc_macro_derive(HandlerStacks, attributes(process))]
-// pub fn handler_stacks(input: TokenStream) -> TokenStream {
-//     let input = syn::parse_macro_input!(input as syn::DeriveInput);
-
-//     match handler_stacks_impl(input) {
-//         Ok(ts) => ts.into(),
-//         Err(e) => e.into_compile_error().into(),
-//     }
-// }
+    match handler_stacks_impl(input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
 
 #[proc_macro_derive(Record, attributes(record))]
 pub fn record(input: TokenStream) -> TokenStream {
@@ -76,7 +69,6 @@ pub fn endpoint(input: TokenStream) -> TokenStream {
         Err(e) => e.into_compile_error().into(),
     }
 }
-
 
 /*
 #[proc_macro]

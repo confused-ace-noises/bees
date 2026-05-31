@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bees = { path = "../bees", features = ["derive"]}
-url = "*"
-reqwest = "*"
-tokio = { version = "*", features = ["full"] }
+bees = { path = "../bees", features = ["derive", "reqwest-json"]}
+reqwest = "0.13.4"
+tokio = { version = "1.52.3", features = ["full"] }
+serde = "1.0.228"
+serde_json = "1.0.150"
 
 [profile.release]
 opt-level = 3
